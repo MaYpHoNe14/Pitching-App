@@ -1,0 +1,1860 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Pitching Program App</title>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+      body {
+        background: #f9fafb;
+      }
+      .btn-primary {
+        border-radius: 0.5rem;
+        background-color: rgb(227 25 55);
+        padding: 0.5rem 1rem;
+        font-weight: 600;
+        color: white;
+        transition: 0.15s ease;
+      }
+      .btn-primary:hover {
+        background-color: rgb(185 28 28);
+      }
+      .btn-secondary {
+        border-radius: 0.5rem;
+        background-color: rgb(209 213 219);
+        padding: 0.5rem 1rem;
+        font-weight: 600;
+        color: rgb(17 24 39);
+        transition: 0.15s ease;
+      }
+      .btn-secondary:hover {
+        background-color: rgb(156 163 175);
+      }
+      .btn-small {
+        border-radius: 0.25rem;
+        padding: 0.25rem 0.5rem;
+        font-size: 0.875rem;
+      }
+      .card {
+        border-radius: 0.5rem;
+        border: 1px solid rgb(229 231 235);
+        background: white;
+        padding: 1rem;
+        box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+      }
+      .form-input,
+      .form-textarea,
+      .form-select {
+        width: 100%;
+        border-radius: 0.5rem;
+        border: 1px solid rgb(209 213 219);
+        padding: 0.5rem 0.75rem;
+        outline: none;
+      }
+      .form-input:focus,
+      .form-textarea:focus,
+      .form-select:focus {
+        border-color: rgb(227 25 55);
+        box-shadow: 0 0 0 2px rgb(227 25 55 / 0.15);
+      }
+      .bg-baseball-navy {
+        background-color: rgb(0 51 102);
+      }
+      .text-baseball-navy {
+        color: rgb(0 51 102);
+      }
+      .bg-baseball-red {
+        background-color: rgb(227 25 55);
+      }
+      .text-baseball-red {
+        color: rgb(227 25 55);
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+
+    <script>
+      const { useEffect, useMemo, useState } = React;
+
+      function uuid() {
+        if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
+        return "id-" + Math.random().toString(36).slice(2) + Date.now().toString(36);
+      }
+
+      const DEFAULT_CATEGORIES = [
+        { id: uuid(), name: "Warm-up" },
+        { id: uuid(), name: "Strength" },
+        { id: uuid(), name: "Flexibility" },
+        { id: uuid(), name: "Conditioning" },
+        { id: uuid(), name: "Cool-down" },
+      ];
+
+      const defaultCategoryIdByName = {};
+      DEFAULT_CATEGORIES.forEach((c) => {
+        defaultCategoryIdByName[c.name] = c.id;
+      });
+
+      const DEFAULT_EXERCISES = [
+        {
+          id: uuid(),
+          categoryId: defaultCategoryIdByName["Warm-up"],
+          name: "Long Toss",
+          description: "Throwing drill to build arm strength and distance",
+          sets: 3,
+          reps: "30-50 throws",
+          rest: 60,
+        },
+        {
+          id: uuid(),
+          categoryId: defaultCategoryIdByName["Strength"],
+          name: "Weighted Ball Training",
+          description: "Using weighted balls to increase velocity and strength",
+          sets: 3,
+          reps: "20 throws",
+          rest: 90,
+        },
+        {
+          id: uuid(),
+          categoryId: defaultCategoryIdByName["Strength"],
+          name: "Band Exercises",
+          description: "Resistance band work for shoulder strength",
+          sets: 3,
+          reps: "15-20 reps",
+          rest: 45,
+        },
+        {
+          id: uuid(),
+          categoryId: defaultCategoryIdByName["Flexibility"],
+          name: "Shoulder Stretch",
+          description: "Dynamic shoulder stretching",
+          sets: 2,
+          reps: "30 seconds each",
+          rest: 30,
+        },
+        {
+          id: uuid(),
+          categoryId: defaultCategoryIdByName["Strength"],
+          name: "Core Work",
+          description: "Ab and core strengthening exercises",
+          sets: 3,
+          reps: "20 reps",
+          rest: 60,
+        },
+        {
+          id: uuid(),
+          categoryId: defaultCategoryIdByName["Conditioning"],
+          name: "Sprint Work",
+          description: "Short sprints for conditioning and explosiveness",
+          sets: 5,
+          reps: "50-100 yards",
+          rest: 120,
+        },
+        {
+          id: uuid(),
+          categoryId: defaultCategoryIdByName["Cool-down"],
+          name: "Recovery Walk",
+          description: "Light walking for cool down",
+          sets: 1,
+          reps: "10 minutes",
+          rest: 0,
+        },
+      ];
+
+      const DEFAULT_DATA = {
+        pitchers: [],
+        exerciseCategories: DEFAULT_CATEGORIES,
+        exercises: DEFAULT_EXERCISES,
+        lastUpdated: new Date().toISOString(),
+      };
+
+      const DB_NAME = "PitchingProgramV2";
+      const DB_VERSION = 1;
+      const STORE_NAME = "programData";
+
+      function openDB() {
+        return new Promise((resolve, reject) => {
+          const request = indexedDB.open(DB_NAME, DB_VERSION);
+          request.onerror = () => reject(request.error);
+          request.onsuccess = () => resolve(request.result);
+          request.onupgradeneeded = (event) => {
+            const db = event.target.result;
+            if (!db.objectStoreNames.contains(STORE_NAME)) {
+              db.createObjectStore(STORE_NAME);
+            }
+          };
+        });
+      }
+
+      async function loadData() {
+        try {
+          const db = await openDB();
+          const tx = db.transaction(STORE_NAME, "readonly");
+          const store = tx.objectStore(STORE_NAME);
+          const req = store.get("data");
+
+          return new Promise((resolve) => {
+            req.onsuccess = () => {
+              const result = req.result;
+              db.close();
+              if (!result) {
+                resolve(DEFAULT_DATA);
+                return;
+              }
+              resolve({
+                pitchers: Array.isArray(result.pitchers) ? result.pitchers : [],
+                exerciseCategories: Array.isArray(result.exerciseCategories)
+                  ? result.exerciseCategories
+                  : DEFAULT_CATEGORIES,
+                exercises: Array.isArray(result.exercises) ? result.exercises : DEFAULT_EXERCISES,
+                lastUpdated: result.lastUpdated || new Date().toISOString(),
+              });
+            };
+            req.onerror = () => {
+              db.close();
+              resolve(DEFAULT_DATA);
+            };
+          });
+        } catch (err) {
+          console.error("Failed to load IndexedDB data:", err);
+          return DEFAULT_DATA;
+        }
+      }
+
+      async function saveData(data) {
+        try {
+          const db = await openDB();
+          const tx = db.transaction(STORE_NAME, "readwrite");
+          tx.objectStore(STORE_NAME).put(
+            {
+              ...data,
+              lastUpdated: new Date().toISOString(),
+            },
+            "data"
+          );
+          return new Promise((resolve, reject) => {
+            tx.oncomplete = () => {
+              db.close();
+              resolve();
+            };
+            tx.onerror = () => {
+              db.close();
+              reject(tx.error);
+            };
+          });
+        } catch (err) {
+          console.error("Failed to save IndexedDB data:", err);
+        }
+      }
+
+      function downloadTextFile(filename, objectData) {
+        const text = JSON.stringify(objectData, null, 2);
+        const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = filename;
+        a.click();
+        URL.revokeObjectURL(url);
+      }
+
+      function readJsonFile(file) {
+        return new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => {
+            try {
+              const parsed = JSON.parse(reader.result);
+              resolve(parsed);
+            } catch (err) {
+              reject(new Error("Invalid JSON/TXT file."));
+            }
+          };
+          reader.onerror = () => reject(reader.error);
+          reader.readAsText(file);
+        });
+      }
+
+      function hiddenFileInput(onFile) {
+        const input = document.createElement("input");
+        input.type = "file";
+        input.accept = ".txt,.json,text/plain,application/json";
+        input.onchange = async (e) => {
+          const file = e.target.files && e.target.files[0];
+          if (file) {
+            await onFile(file);
+          }
+        };
+        input.click();
+      }
+
+      function StatBox({ label, value }) {
+        return React.createElement(
+          "div",
+          { className: "bg-gray-100 rounded-lg p-3" },
+          React.createElement("p", { className: "text-xs font-semibold text-gray-600" }, label),
+          React.createElement("p", { className: "text-lg font-bold" }, value)
+        );
+      }
+
+      function AddPitcherModal({ onAdd, onClose, editPitcher = null }) {
+        const [form, setForm] = useState(
+          editPitcher || {
+            name: "",
+            age: 0,
+            height: "",
+            weight: 0,
+            position: "starter",
+            throws: "right",
+            mainPitch: "Fastball",
+            secondaryPitches: [],
+          }
+        );
+
+        const pitches = ["Fastball", "Curveball", "Slider", "Changeup", "Cutter", "Sinker", "Splitter"];
+
+        function submit(e) {
+          e.preventDefault();
+          if (!form.name.trim()) return;
+
+          const pitcher = {
+            id: editPitcher?.id || uuid(),
+            name: form.name.trim(),
+            age: Number(form.age) || 0,
+            height: form.height || "",
+            weight: Number(form.weight) || 0,
+            position: form.position,
+            throws: form.throws,
+            mainPitch: form.mainPitch,
+            secondaryPitches: form.secondaryPitches,
+            joinDate: editPitcher?.joinDate || new Date().toISOString().split("T")[0],
+            workouts: editPitcher?.workouts || [],
+          };
+
+          onAdd(pitcher);
+          onClose();
+        }
+
+        function toggleSecondaryPitch(pitch) {
+          setForm((prev) => ({
+            ...prev,
+            secondaryPitches: prev.secondaryPitches.includes(pitch)
+              ? prev.secondaryPitches.filter((p) => p !== pitch)
+              : [...prev.secondaryPitches, pitch],
+          }));
+        }
+
+        return React.createElement(
+          "div",
+          { className: "fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50" },
+          React.createElement(
+            "div",
+            { className: "card max-w-md w-full max-h-[90vh] overflow-y-auto" },
+            React.createElement(
+              "h2",
+              { className: "text-2xl font-bold mb-4" },
+              editPitcher ? "Edit Pitcher" : "Add New Pitcher"
+            ),
+            React.createElement(
+              "form",
+              { onSubmit: submit, className: "space-y-4" },
+              React.createElement("div", null,
+                React.createElement("label", { className: "block text-sm font-semibold mb-1" }, "Pitcher Name"),
+                React.createElement("input", {
+                  className: "form-input",
+                  value: form.name,
+                  required: true,
+                  onChange: (e) => setForm((p) => ({ ...p, name: e.target.value })),
+                })
+              ),
+              React.createElement("div", null,
+                React.createElement("label", { className: "block text-sm font-semibold mb-1" }, "Age"),
+                React.createElement("input", {
+                  type: "number",
+                  className: "form-input",
+                  value: form.age,
+                  onChange: (e) => setForm((p) => ({ ...p, age: parseInt(e.target.value) || 0 })),
+                })
+              ),
+              React.createElement("div", null,
+                React.createElement("label", { className: "block text-sm font-semibold mb-1" }, "Height"),
+                React.createElement("input", {
+                  className: "form-input",
+                  value: form.height,
+                  onChange: (e) => setForm((p) => ({ ...p, height: e.target.value })),
+                })
+              ),
+              React.createElement("div", null,
+                React.createElement("label", { className: "block text-sm font-semibold mb-1" }, "Weight (lbs)"),
+                React.createElement("input", {
+                  type: "number",
+                  className: "form-input",
+                  value: form.weight,
+                  onChange: (e) => setForm((p) => ({ ...p, weight: parseInt(e.target.value) || 0 })),
+                })
+              ),
+              React.createElement("div", null,
+                React.createElement("label", { className: "block text-sm font-semibold mb-1" }, "Position"),
+                React.createElement(
+                  "select",
+                  {
+                    className: "form-input",
+                    value: form.position,
+                    onChange: (e) => setForm((p) => ({ ...p, position: e.target.value })),
+                  },
+                  React.createElement("option", { value: "starter" }, "Starter"),
+                  React.createElement("option", { value: "reliever" }, "Reliever"),
+                  React.createElement("option", { value: "closer" }, "Closer")
+                )
+              ),
+              React.createElement("div", null,
+                React.createElement("label", { className: "block text-sm font-semibold mb-1" }, "Throws"),
+                React.createElement(
+                  "select",
+                  {
+                    className: "form-input",
+                    value: form.throws,
+                    onChange: (e) => setForm((p) => ({ ...p, throws: e.target.value })),
+                  },
+                  React.createElement("option", { value: "right" }, "Right Handed"),
+                  React.createElement("option", { value: "left" }, "Left Handed")
+                )
+              ),
+              React.createElement("div", null,
+                React.createElement("label", { className: "block text-sm font-semibold mb-1" }, "Main Pitch"),
+                React.createElement(
+                  "select",
+                  {
+                    className: "form-input",
+                    value: form.mainPitch,
+                    onChange: (e) =>
+                      setForm((p) => ({
+                        ...p,
+                        mainPitch: e.target.value,
+                        secondaryPitches: p.secondaryPitches.filter((sp) => sp !== e.target.value),
+                      })),
+                  },
+                  pitches.map((pitch) =>
+                    React.createElement("option", { key: pitch, value: pitch }, pitch)
+                  )
+                )
+              ),
+              React.createElement("div", null,
+                React.createElement("label", { className: "block text-sm font-medium mb-2" }, "Secondary Pitches"),
+                React.createElement(
+                  "div",
+                  { className: "grid grid-cols-2 gap-2" },
+                  pitches
+                    .filter((pitch) => pitch !== form.mainPitch)
+                    .map((pitch) =>
+                      React.createElement(
+                        "label",
+                        { key: pitch, className: "flex items-center" },
+                        React.createElement("input", {
+                          type: "checkbox",
+                          checked: form.secondaryPitches.includes(pitch),
+                          onChange: () => toggleSecondaryPitch(pitch),
+                        }),
+                        React.createElement("span", { className: "ml-2 text-sm" }, pitch)
+                      )
+                    )
+                )
+              ),
+              React.createElement(
+                "div",
+                { className: "flex gap-2 pt-4" },
+                React.createElement(
+                  "button",
+                  { type: "submit", className: "btn-primary flex-1" },
+                  editPitcher ? "Save Pitcher" : "Add Pitcher"
+                ),
+                React.createElement(
+                  "button",
+                  { type: "button", onClick: onClose, className: "btn-secondary flex-1" },
+                  "Cancel"
+                )
+              )
+            )
+          )
+        );
+      }
+
+      function PitcherCard({ pitcher, onSelect, onDelete, onEdit }) {
+        return React.createElement(
+          "div",
+          {
+            className: "card cursor-pointer hover:shadow-lg transition-shadow",
+            onClick: () => onSelect(pitcher),
+          },
+          React.createElement(
+            "div",
+            { className: "flex justify-between items-start" },
+            React.createElement(
+              "div",
+              { className: "flex-1" },
+              React.createElement("h3", { className: "text-xl font-bold text-baseball-navy" }, pitcher.name),
+              React.createElement(
+                "p",
+                { className: "text-gray-600 text-sm" },
+                pitcher.position.charAt(0).toUpperCase() + pitcher.position.slice(1)
+              ),
+              React.createElement(
+                "div",
+                { className: "mt-3 space-y-1 text-sm" },
+                React.createElement("p", null, React.createElement("span", { className: "font-semibold" }, "Age:"), " ", pitcher.age),
+                React.createElement("p", null, React.createElement("span", { className: "font-semibold" }, "Height:"), " ", pitcher.height),
+                React.createElement("p", null, React.createElement("span", { className: "font-semibold" }, "Weight:"), " ", pitcher.weight, " lbs"),
+                React.createElement("p", null, React.createElement("span", { className: "font-semibold" }, "Throws:"), " ", pitcher.throws === "right" ? "RHP" : "LHP"),
+                React.createElement("p", null, React.createElement("span", { className: "font-semibold" }, "Main Pitch:"), " ", pitcher.mainPitch),
+                pitcher.secondaryPitches?.length > 0
+                  ? React.createElement("p", null, React.createElement("span", { className: "font-semibold" }, "Secondary:"), " ", pitcher.secondaryPitches.join(", "))
+                  : null
+              )
+            )
+          ),
+          React.createElement(
+            "div",
+            { className: "flex gap-2 mt-4" },
+            React.createElement(
+              "button",
+              {
+                className: "btn-secondary btn-small",
+                onClick: (e) => {
+                  e.stopPropagation();
+                  onEdit(pitcher);
+                },
+              },
+              "Edit"
+            ),
+            React.createElement(
+              "button",
+              {
+                className: "btn-secondary btn-small",
+                onClick: (e) => {
+                  e.stopPropagation();
+                  onDelete(pitcher.id);
+                },
+              },
+              "Delete"
+            )
+          ),
+          React.createElement(
+            "p",
+            { className: "text-xs text-gray-500 mt-3" },
+            "Joined: ",
+            new Date(pitcher.joinDate).toLocaleDateString(),
+            " | Workouts: ",
+            pitcher.workouts.length
+          )
+        );
+      }
+
+      function WorkoutBuilder({ pitcher, exercises, categories, onSave, onCancel }) {
+        const [workoutName, setWorkoutName] = useState("");
+        const [selectedExercises, setSelectedExercises] = useState([]);
+        const [notes, setNotes] = useState("");
+        const [draggedExercise, setDraggedExercise] = useState(null);
+
+        const categoryMap = useMemo(() => {
+          const map = {};
+          categories.forEach((c) => {
+            map[c.id] = c.name;
+          });
+          return map;
+        }, [categories]);
+
+        const groupedExercises = useMemo(() => {
+          const grouped = {};
+          categories.forEach((c) => {
+            grouped[c.id] = [];
+          });
+          exercises.forEach((exercise) => {
+            if (!grouped[exercise.categoryId]) grouped[exercise.categoryId] = [];
+            grouped[exercise.categoryId].push(exercise);
+          });
+          return grouped;
+        }, [categories, exercises]);
+
+        function addExercise(exercise) {
+          setSelectedExercises((prev) => [...prev, { ...exercise, workoutItemId: uuid() }]);
+        }
+
+        function removeExercise(index) {
+          setSelectedExercises((prev) => prev.filter((_, i) => i !== index));
+        }
+
+        function reorderExercise(fromIndex, toIndex) {
+          const copy = [...selectedExercises];
+          const [moved] = copy.splice(fromIndex, 1);
+          copy.splice(toIndex, 0, moved);
+          setSelectedExercises(copy);
+        }
+
+        function estimateDuration() {
+          return (
+            selectedExercises.reduce((sum, ex) => {
+              const repsNum = parseInt(ex.reps) || 5;
+              return sum + repsNum + (Number(ex.rest) || 0);
+            }, 0) / 60
+          );
+        }
+
+        function saveWorkout() {
+          if (!workoutName.trim() || selectedExercises.length === 0) {
+            alert("Please enter a workout name and add at least one exercise.");
+            return;
+          }
+
+          const workout = {
+            id: uuid(),
+            name: workoutName.trim(),
+            date: new Date().toISOString().split("T")[0],
+            duration: Math.round(estimateDuration()),
+            exercises: selectedExercises.map(({ workoutItemId, ...rest }) => rest),
+            notes,
+            completed: false,
+          };
+
+          onSave(workout);
+        }
+
+        return React.createElement(
+          "div",
+          { className: "card max-w-6xl mx-auto" },
+          React.createElement("h2", { className: "text-2xl font-bold mb-4" }, "Build Workout for ", pitcher.name),
+          React.createElement(
+            "div",
+            { className: "grid grid-cols-1 md:grid-cols-3 gap-4 mb-4" },
+            React.createElement("div", null,
+              React.createElement("label", { className: "block text-sm font-semibold mb-2" }, "Workout Name"),
+              React.createElement("input", {
+                className: "form-input",
+                value: workoutName,
+                placeholder: "e.g., Arm Day, Recovery Day",
+                onChange: (e) => setWorkoutName(e.target.value),
+              })
+            ),
+            React.createElement("div", null,
+              React.createElement("label", { className: "block text-sm font-semibold mb-2" }, "Duration (estimated)"),
+              React.createElement("div", { className: "bg-gray-100 rounded-lg p-2 text-center font-bold" }, estimateDuration().toFixed(1), " min")
+            ),
+            React.createElement("div", null,
+              React.createElement("label", { className: "block text-sm font-semibold mb-2" }, "Exercises Added"),
+              React.createElement("div", { className: "bg-gray-100 rounded-lg p-2 text-center font-bold" }, selectedExercises.length)
+            )
+          ),
+          React.createElement(
+            "div",
+            { className: "grid grid-cols-1 md:grid-cols-2 gap-4 mb-4" },
+            React.createElement(
+              "div",
+              { className: "border-2 border-dashed border-gray-300 rounded-lg p-4 bg-gray-50" },
+              React.createElement("h3", { className: "font-semibold mb-3" }, "Available Exercises"),
+              React.createElement(
+                "div",
+                { className: "space-y-4 max-h-96 overflow-y-auto" },
+                categories.map((category) =>
+                  React.createElement(
+                    "div",
+                    { key: category.id },
+                    React.createElement(
+                      "h4",
+                      { className: "font-semibold text-sm mb-2 text-gray-700" },
+                      category.name
+                    ),
+                    (groupedExercises[category.id] || []).length === 0
+                      ? React.createElement("p", { className: "text-xs text-gray-400 mb-2" }, "No exercises in this category.")
+                      : React.createElement(
+                          "div",
+                          { className: "space-y-2" },
+                          groupedExercises[category.id].map((exercise) =>
+                            React.createElement(
+                              "div",
+                              {
+                                key: exercise.id,
+                                draggable: true,
+                                onDragStart: () => setDraggedExercise(exercise),
+                                onDragEnd: () => setDraggedExercise(null),
+                                onClick: () => addExercise(exercise),
+                                className: "p-2 bg-white rounded border border-gray-200 cursor-move hover:border-red-400 transition-colors",
+                              },
+                              React.createElement("p", { className: "font-medium text-sm" }, exercise.name),
+                              React.createElement(
+                                "p",
+                                { className: "text-xs text-gray-600" },
+                                exercise.sets,
+                                " sets × ",
+                                exercise.reps,
+                                exercise.rest > 0 ? ` • Rest: ${exercise.rest}s` : ""
+                              )
+                            )
+                          )
+                        )
+                  )
+                )
+              )
+            ),
+            React.createElement(
+              "div",
+              { className: "border-2 border-solid border-gray-300 rounded-lg p-4 bg-blue-50 min-h-96" },
+              React.createElement("h3", { className: "font-semibold mb-3" }, "Selected Exercises (Drag to reorder)"),
+              selectedExercises.length === 0
+                ? React.createElement("p", { className: "text-gray-500 text-center py-8" }, "Drag or click exercises to add them")
+                : React.createElement(
+                    "div",
+                    {
+                      className: "space-y-2",
+                      onDragOver: (e) => e.preventDefault(),
+                      onDrop: (e) => e.preventDefault(),
+                    },
+                    selectedExercises.map((exercise, index) =>
+                      React.createElement(
+                        "div",
+                        {
+                          key: exercise.workoutItemId || `${exercise.id}-${index}`,
+                          draggable: true,
+                          onDragStart: () => setDraggedExercise(exercise),
+                          onDragOver: (e) => e.preventDefault(),
+                          onDrop: () => {
+                            if (!draggedExercise) return;
+                            const fromIndex = selectedExercises.findIndex(
+                              (x) => (x.workoutItemId || x.id) === (draggedExercise.workoutItemId || draggedExercise.id)
+                            );
+                            if (fromIndex !== -1 && fromIndex !== index) {
+                              reorderExercise(fromIndex, index);
+                            }
+                          },
+                          className: "p-3 bg-white rounded border-2 border-gray-300 cursor-move",
+                        },
+                        React.createElement(
+                          "div",
+                          { className: "flex justify-between items-start" },
+                          React.createElement(
+                            "div",
+                            { className: "flex-1" },
+                            React.createElement("p", { className: "font-medium" }, `${index + 1}. ${exercise.name}`),
+                            React.createElement(
+                              "p",
+                              { className: "text-xs text-gray-600" },
+                              categoryMap[exercise.categoryId] || "Uncategorized"
+                            ),
+                            React.createElement(
+                              "p",
+                              { className: "text-xs text-gray-600" },
+                              exercise.sets,
+                              " sets × ",
+                              exercise.reps
+                            ),
+                            React.createElement(
+                              "p",
+                              { className: "text-xs text-gray-600" },
+                              "Rest: ",
+                              exercise.rest,
+                              "s"
+                            )
+                          ),
+                          React.createElement(
+                            "button",
+                            { onClick: () => removeExercise(index), className: "text-red-600 hover:text-red-800 font-bold" },
+                            "✕"
+                          )
+                        )
+                      )
+                    )
+                  )
+            )
+          ),
+          React.createElement("div", { className: "mb-4" },
+            React.createElement("label", { className: "block text-sm font-semibold mb-2" }, "Notes"),
+            React.createElement("textarea", {
+              className: "form-input h-24",
+              value: notes,
+              placeholder: "Add notes about this workout...",
+              onChange: (e) => setNotes(e.target.value),
+            })
+          ),
+          React.createElement(
+            "div",
+            { className: "flex gap-2" },
+            React.createElement("button", { onClick: saveWorkout, className: "btn-primary flex-1" }, "Save Workout"),
+            React.createElement("button", { onClick: onCancel, className: "btn-secondary flex-1" }, "Cancel")
+          )
+        );
+      }
+
+      function PitcherDetail({ pitcher, categories, onCreateWorkout, onDeleteWorkout, onCompleteWorkout, onBack, onEditPitcher }) {
+        const categoryMap = useMemo(() => {
+          const map = {};
+          categories.forEach((c) => {
+            map[c.id] = c.name;
+          });
+          return map;
+        }, [categories]);
+
+        return React.createElement(
+          "div",
+          { className: "space-y-4" },
+          React.createElement("button", { onClick: onBack, className: "btn-secondary btn-small" }, "← Back to Pitchers"),
+          React.createElement(
+            "div",
+            { className: "card" },
+            React.createElement(
+              "div",
+              { className: "flex justify-between items-start mb-4 gap-4" },
+              React.createElement(
+                "div",
+                null,
+                React.createElement("h1", { className: "text-3xl font-bold text-baseball-navy" }, pitcher.name),
+                React.createElement(
+                  "p",
+                  { className: "text-gray-600" },
+                  pitcher.position.charAt(0).toUpperCase() + pitcher.position.slice(1)
+                )
+              ),
+              React.createElement("button", { className: "btn-secondary", onClick: onEditPitcher }, "Edit Pitcher")
+            ),
+            React.createElement(
+              "div",
+              { className: "grid grid-cols-2 md:grid-cols-4 gap-4 mb-4" },
+              React.createElement(StatBox, { label: "Age", value: pitcher.age }),
+              React.createElement(StatBox, { label: "Height", value: pitcher.height }),
+              React.createElement(StatBox, { label: "Weight", value: `${pitcher.weight} lbs` }),
+              React.createElement(StatBox, { label: "Throws", value: pitcher.throws === "right" ? "RHP" : "LHP" })
+            ),
+            React.createElement(
+              "div",
+              { className: "grid grid-cols-1 md:grid-cols-2 gap-4" },
+              React.createElement(
+                "div",
+                null,
+                React.createElement("p", { className: "text-sm font-semibold text-gray-600" }, "Main Pitch"),
+                React.createElement("p", { className: "text-xl font-bold text-baseball-red" }, pitcher.mainPitch)
+              ),
+              pitcher.secondaryPitches?.length > 0
+                ? React.createElement(
+                    "div",
+                    null,
+                    React.createElement("p", { className: "text-sm font-semibold text-gray-600" }, "Secondary Pitches"),
+                    React.createElement(
+                      "div",
+                      { className: "flex flex-wrap gap-2 mt-1" },
+                      pitcher.secondaryPitches.map((p) =>
+                        React.createElement(
+                          "span",
+                          { key: p, className: "bg-blue-100 text-blue-800 text-sm px-2 py-1 rounded" },
+                          p
+                        )
+                      )
+                    )
+                  )
+                : null
+            )
+          ),
+          React.createElement(
+            "div",
+            { className: "card" },
+            React.createElement(
+              "div",
+              { className: "flex justify-between items-center mb-4" },
+              React.createElement("h2", { className: "text-2xl font-bold" }, `Workouts (${pitcher.workouts.length})`),
+              React.createElement("button", { onClick: onCreateWorkout, className: "btn-primary" }, "+ New Workout")
+            ),
+            pitcher.workouts.length === 0
+              ? React.createElement(
+                  "div",
+                  { className: "text-center py-8 text-gray-500" },
+                  React.createElement("p", null, "No workouts yet. Create one to get started!")
+                )
+              : React.createElement(
+                  "div",
+                  { className: "space-y-3" },
+                  pitcher.workouts.map((workout) =>
+                    React.createElement(
+                      "div",
+                      { key: workout.id, className: "border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow" },
+                      React.createElement(
+                        "div",
+                        { className: "flex justify-between items-start mb-2 gap-4" },
+                        React.createElement(
+                          "div",
+                          { className: "flex-1" },
+                          React.createElement("h3", { className: "text-lg font-semibold" }, workout.name),
+                          React.createElement(
+                            "p",
+                            { className: "text-sm text-gray-600" },
+                            new Date(workout.date).toLocaleDateString(),
+                            " • ",
+                            workout.duration,
+                            " min"
+                          )
+                        ),
+                        React.createElement(
+                          "div",
+                          { className: "flex gap-2" },
+                          React.createElement(
+                            "button",
+                            {
+                              onClick: () => onCompleteWorkout(workout.id),
+                              className: `btn-small ${workout.completed ? "bg-green-500 text-white" : "bg-gray-300"}`,
+                            },
+                            workout.completed ? "✓ Done" : "Mark Done"
+                          ),
+                          React.createElement(
+                            "button",
+                            { onClick: () => onDeleteWorkout(workout.id), className: "btn-secondary btn-small" },
+                            "Delete"
+                          )
+                        )
+                      ),
+                      React.createElement("p", { className: "text-sm font-semibold mb-2" }, `${workout.exercises.length} exercises`),
+                      React.createElement(
+                        "div",
+                        { className: "bg-gray-50 rounded-lg p-3 mb-2" },
+                        workout.exercises.map((exercise, index) =>
+                          React.createElement(
+                            "div",
+                            { key: `${workout.id}-${index}`, className: "text-sm py-1" },
+                            React.createElement(
+                              "span",
+                              { className: "font-medium" },
+                              `${index + 1}. ${exercise.name}`
+                            ),
+                            " ",
+                            React.createElement(
+                              "span",
+                              { className: "text-gray-600" },
+                              `- ${categoryMap[exercise.categoryId] || "Uncategorized"} • ${exercise.sets}x${exercise.reps}`
+                            )
+                          )
+                        )
+                      ),
+                      workout.notes
+                        ? React.createElement("p", { className: "text-sm text-gray-600 italic" }, "Note: ", workout.notes)
+                        : null
+                    )
+                  )
+                )
+          )
+        );
+      }
+
+      function CategoryManager({ categories, exercises, onAddCategory, onUpdateCategory, onDeleteCategory }) {
+        const [showForm, setShowForm] = useState(false);
+        const [editingCategory, setEditingCategory] = useState(null);
+        const [name, setName] = useState("");
+
+        function reset() {
+          setShowForm(false);
+          setEditingCategory(null);
+          setName("");
+        }
+
+        function submit(e) {
+          e.preventDefault();
+          const trimmed = name.trim();
+          if (!trimmed) return;
+
+          const duplicate = categories.find(
+            (c) => c.name.toLowerCase() === trimmed.toLowerCase() && c.id !== editingCategory?.id
+          );
+          if (duplicate) {
+            alert("A category with that name already exists.");
+            return;
+          }
+
+          if (editingCategory) {
+            onUpdateCategory({ ...editingCategory, name: trimmed });
+          } else {
+            onAddCategory({ id: uuid(), name: trimmed });
+          }
+          reset();
+        }
+
+        function edit(category) {
+          setEditingCategory(category);
+          setName(category.name);
+          setShowForm(true);
+        }
+
+        function remove(categoryId) {
+          const isUsed = exercises.some((e) => e.categoryId === categoryId);
+          if (isUsed) {
+            alert("Cannot delete a category that still has exercises assigned to it.");
+            return;
+          }
+          if (confirm("Delete this category?")) {
+            onDeleteCategory(categoryId);
+          }
+        }
+
+        return React.createElement(
+          "div",
+          { className: "card mb-6" },
+          React.createElement(
+            "div",
+            { className: "flex justify-between items-center mb-4" },
+            React.createElement("h2", { className: "text-2xl font-bold" }, `Exercise Categories (${categories.length})`),
+            React.createElement(
+              "button",
+              {
+                className: "btn-primary",
+                onClick: () => {
+                  if (showForm) reset();
+                  else setShowForm(true);
+                },
+              },
+              showForm ? "✕ Close" : "+ Add Category"
+            )
+          ),
+          showForm
+            ? React.createElement(
+                "form",
+                { onSubmit: submit, className: "bg-gray-50 rounded-lg p-4 mb-4 border border-gray-300 space-y-3" },
+                React.createElement("h3", { className: "font-semibold" }, editingCategory ? "Edit Category" : "Create New Category"),
+                React.createElement("input", {
+                  className: "form-input",
+                  value: name,
+                  placeholder: "Category Name",
+                  onChange: (e) => setName(e.target.value),
+                  required: true,
+                }),
+                React.createElement(
+                  "div",
+                  { className: "flex gap-2" },
+                  React.createElement(
+                    "button",
+                    { type: "submit", className: "btn-primary" },
+                    editingCategory ? "Save Category" : "Create Category"
+                  ),
+                  React.createElement(
+                    "button",
+                    { type: "button", onClick: reset, className: "btn-secondary" },
+                    "Cancel"
+                  )
+                )
+              )
+            : null,
+          categories.length === 0
+            ? React.createElement("p", { className: "text-gray-500 text-center py-6" }, "No categories yet.")
+            : React.createElement(
+                "div",
+                { className: "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3" },
+                categories.map((category) => {
+                  const count = exercises.filter((e) => e.categoryId === category.id).length;
+                  return React.createElement(
+                    "div",
+                    { key: category.id, className: "border border-gray-200 rounded-lg p-4" },
+                    React.createElement("h3", { className: "font-semibold text-lg" }, category.name),
+                    React.createElement("p", { className: "text-sm text-gray-600 mt-1" }, `${count} exercise${count === 1 ? "" : "s"}`),
+                    React.createElement(
+                      "div",
+                      { className: "flex gap-2 mt-3" },
+                      React.createElement(
+                        "button",
+                        { className: "text-blue-600 hover:text-blue-800 font-bold", onClick: () => edit(category) },
+                        "Edit"
+                      ),
+                      React.createElement(
+                        "button",
+                        { className: "text-red-600 hover:text-red-800 font-bold", onClick: () => remove(category.id) },
+                        "Delete"
+                      )
+                    )
+                  );
+                })
+              )
+        );
+      }
+
+      function ExerciseManager({ exercises, categories, onAddExercise, onUpdateExercise, onDeleteExercise }) {
+        const [showForm, setShowForm] = useState(false);
+        const [editingExercise, setEditingExercise] = useState(null);
+        const [form, setForm] = useState({
+          categoryId: categories[0]?.id || "",
+          name: "",
+          description: "",
+          sets: 3,
+          reps: "10",
+          rest: 60,
+        });
+
+        useEffect(() => {
+          if (!editingExercise && categories.length > 0 && !form.categoryId) {
+            setForm((prev) => ({ ...prev, categoryId: categories[0].id }));
+          }
+        }, [categories]);
+
+        function reset() {
+          setShowForm(false);
+          setEditingExercise(null);
+          setForm({
+            categoryId: categories[0]?.id || "",
+            name: "",
+            description: "",
+            sets: 3,
+            reps: "10",
+            rest: 60,
+          });
+        }
+
+        function submit(e) {
+          e.preventDefault();
+          if (!form.name.trim()) return;
+          if (!form.categoryId) {
+            alert("Please choose a category.");
+            return;
+          }
+
+          const payload = {
+            id: editingExercise?.id || uuid(),
+            categoryId: form.categoryId,
+            name: form.name.trim(),
+            description: form.description.trim(),
+            sets: Number(form.sets) || 1,
+            reps: form.reps,
+            rest: Number(form.rest) || 0,
+          };
+
+          if (editingExercise) onUpdateExercise(payload);
+          else onAddExercise(payload);
+
+          reset();
+        }
+
+        function edit(exercise) {
+          setEditingExercise(exercise);
+          setForm({
+            categoryId: exercise.categoryId,
+            name: exercise.name,
+            description: exercise.description,
+            sets: exercise.sets,
+            reps: exercise.reps,
+            rest: exercise.rest,
+          });
+          setShowForm(true);
+        }
+
+        const grouped = {};
+        categories.forEach((c) => (grouped[c.id] = []));
+        exercises.forEach((e) => {
+          if (!grouped[e.categoryId]) grouped[e.categoryId] = [];
+          grouped[e.categoryId].push(e);
+        });
+
+        return React.createElement(
+          "div",
+          { className: "card" },
+          React.createElement(
+            "div",
+            { className: "flex justify-between items-center mb-4" },
+            React.createElement("h2", { className: "text-2xl font-bold" }, `Exercises (${exercises.length})`),
+            React.createElement(
+              "button",
+              {
+                className: "btn-primary",
+                onClick: () => {
+                  if (showForm) reset();
+                  else setShowForm(true);
+                },
+                disabled: categories.length === 0,
+              },
+              showForm ? "✕ Close" : "+ Add Exercise"
+            )
+          ),
+          categories.length === 0
+            ? React.createElement(
+                "p",
+                { className: "text-gray-500 text-center py-6" },
+                "Create at least one category before adding exercises."
+              )
+            : null,
+          showForm
+            ? React.createElement(
+                "form",
+                { onSubmit: submit, className: "bg-gray-50 rounded-lg p-4 mb-4 border border-gray-300 space-y-3" },
+                React.createElement("h3", { className: "font-semibold" }, editingExercise ? "Edit Exercise" : "Create New Exercise"),
+                React.createElement("div", null,
+                  React.createElement("label", { className: "block text-sm font-semibold mb-1" }, "Category"),
+                  React.createElement(
+                    "select",
+                    {
+                      className: "form-input",
+                      value: form.categoryId,
+                      onChange: (e) => setForm((prev) => ({ ...prev, categoryId: e.target.value })),
+                    },
+                    categories.map((category) =>
+                      React.createElement("option", { key: category.id, value: category.id }, category.name)
+                    )
+                  )
+                ),
+                React.createElement("div", null,
+                  React.createElement("label", { className: "block text-sm font-semibold mb-1" }, "Exercise Name"),
+                  React.createElement("input", {
+                    className: "form-input",
+                    value: form.name,
+                    onChange: (e) => setForm((prev) => ({ ...prev, name: e.target.value })),
+                    required: true,
+                  })
+                ),
+                React.createElement("div", null,
+                  React.createElement("label", { className: "block text-sm font-semibold mb-1" }, "Description"),
+                  React.createElement("textarea", {
+                    className: "form-input h-20",
+                    value: form.description,
+                    onChange: (e) => setForm((prev) => ({ ...prev, description: e.target.value })),
+                  })
+                ),
+                React.createElement(
+                  "div",
+                  { className: "grid grid-cols-3 gap-2" },
+                  React.createElement("div", null,
+                    React.createElement("label", { className: "block text-sm font-semibold mb-1" }, "Sets"),
+                    React.createElement("input", {
+                      type: "number",
+                      className: "form-input",
+                      value: form.sets,
+                      onChange: (e) => setForm((prev) => ({ ...prev, sets: parseInt(e.target.value) || 1 })),
+                    })
+                  ),
+                  React.createElement("div", null,
+                    React.createElement("label", { className: "block text-sm font-semibold mb-1" }, "Reps"),
+                    React.createElement("input", {
+                      className: "form-input",
+                      value: form.reps,
+                      onChange: (e) => setForm((prev) => ({ ...prev, reps: e.target.value })),
+                    })
+                  ),
+                  React.createElement("div", null,
+                    React.createElement("label", { className: "block text-sm font-semibold mb-1" }, "Rest (sec)"),
+                    React.createElement("input", {
+                      type: "number",
+                      className: "form-input",
+                      value: form.rest,
+                      onChange: (e) => setForm((prev) => ({ ...prev, rest: parseInt(e.target.value) || 0 })),
+                    })
+                  )
+                ),
+                React.createElement(
+                  "div",
+                  { className: "flex gap-2" },
+                  React.createElement(
+                    "button",
+                    { type: "submit", className: "btn-primary" },
+                    editingExercise ? "Save Exercise" : "Create Exercise"
+                  ),
+                  React.createElement(
+                    "button",
+                    { type: "button", onClick: reset, className: "btn-secondary" },
+                    "Cancel"
+                  )
+                )
+              )
+            : null,
+          React.createElement(
+            "div",
+            { className: "space-y-6" },
+            categories.map((category) =>
+              React.createElement(
+                "div",
+                { key: category.id },
+                React.createElement(
+                  "h3",
+                  { className: "text-lg font-semibold mb-3 flex items-center gap-2" },
+                  React.createElement(
+                    "span",
+                    { className: "inline-block px-3 py-1 rounded text-sm font-bold bg-gray-100 text-gray-700" },
+                    category.name
+                  ),
+                  React.createElement(
+                    "span",
+                    { className: "text-gray-600" },
+                    `(${(grouped[category.id] || []).length})`
+                  )
+                ),
+                (grouped[category.id] || []).length === 0
+                  ? React.createElement("p", { className: "text-gray-400 text-sm" }, "No exercises in this category.")
+                  : React.createElement(
+                      "div",
+                      { className: "grid grid-cols-1 md:grid-cols-2 gap-3" },
+                      grouped[category.id].map((exercise) =>
+                        React.createElement(
+                          "div",
+                          { key: exercise.id, className: "border border-gray-200 rounded-lg p-3 hover:shadow-md transition-shadow" },
+                          React.createElement(
+                            "div",
+                            { className: "flex justify-between items-start mb-2" },
+                            React.createElement("h4", { className: "font-semibold" }, exercise.name),
+                            React.createElement(
+                              "div",
+                              { className: "flex gap-2" },
+                              React.createElement(
+                                "button",
+                                { className: "text-blue-600 hover:text-blue-800 font-bold", onClick: () => edit(exercise) },
+                                "Edit"
+                              ),
+                              React.createElement(
+                                "button",
+                                {
+                                  className: "text-red-600 hover:text-red-800 font-bold",
+                                  onClick: () => {
+                                    if (confirm("Delete this exercise?")) onDeleteExercise(exercise.id);
+                                  },
+                                },
+                                "✕"
+                              )
+                            )
+                          ),
+                          exercise.description
+                            ? React.createElement("p", { className: "text-sm text-gray-600 mb-2" }, exercise.description)
+                            : null,
+                          React.createElement(
+                            "p",
+                            { className: "text-sm" },
+                            React.createElement("span", { className: "font-medium" }, `${exercise.sets} sets`),
+                            " × ",
+                            exercise.reps,
+                            exercise.rest > 0 ? ` (rest: ${exercise.rest}s)` : ""
+                          )
+                        )
+                      )
+                    )
+              )
+            )
+          )
+        );
+      }
+
+      function App() {
+        const [data, setData] = useState(DEFAULT_DATA);
+        const [loading, setLoading] = useState(true);
+        const [view, setView] = useState("pitchers");
+        const [selectedPitcher, setSelectedPitcher] = useState(null);
+        const [showPitcherModal, setShowPitcherModal] = useState(false);
+        const [editingPitcher, setEditingPitcher] = useState(null);
+
+        useEffect(() => {
+          (async () => {
+            const loaded = await loadData();
+            setData(loaded);
+            setLoading(false);
+          })();
+        }, []);
+
+        useEffect(() => {
+          if (!loading) saveData(data);
+        }, [data, loading]);
+
+        function updateData(updater) {
+          setData((prev) => ({
+            ...updater(prev),
+            lastUpdated: new Date().toISOString(),
+          }));
+        }
+
+        function upsertPitcher(pitcher) {
+          updateData((prev) => {
+            const exists = prev.pitchers.some((p) => p.id === pitcher.id);
+            const nextPitchers = exists
+              ? prev.pitchers.map((p) => (p.id === pitcher.id ? pitcher : p))
+              : [...prev.pitchers, pitcher];
+
+            return { ...prev, pitchers: nextPitchers };
+          });
+
+          setSelectedPitcher((prev) => (prev && prev.id === pitcher.id ? pitcher : prev));
+          setEditingPitcher(null);
+        }
+
+        function deletePitcher(id) {
+          if (!confirm("Are you sure you want to delete this pitcher?")) return;
+          updateData((prev) => ({
+            ...prev,
+            pitchers: prev.pitchers.filter((p) => p.id !== id),
+          }));
+          if (selectedPitcher?.id === id) {
+            setSelectedPitcher(null);
+            setView("pitchers");
+          }
+        }
+
+        function selectPitcher(pitcher) {
+          setSelectedPitcher(pitcher);
+          setView("pitcher-detail");
+        }
+
+        function createWorkout(workout) {
+          if (!selectedPitcher) return;
+
+          let updatedPitcher = null;
+          updateData((prev) => {
+            const nextPitchers = prev.pitchers.map((pitcher) => {
+              if (pitcher.id !== selectedPitcher.id) return pitcher;
+              updatedPitcher = { ...pitcher, workouts: [...pitcher.workouts, workout] };
+              return updatedPitcher;
+            });
+            return { ...prev, pitchers: nextPitchers };
+          });
+
+          if (updatedPitcher) setSelectedPitcher(updatedPitcher);
+          setView("pitcher-detail");
+        }
+
+        function deleteWorkout(workoutId) {
+          if (!selectedPitcher) return;
+          let updatedPitcher = null;
+          updateData((prev) => {
+            const nextPitchers = prev.pitchers.map((pitcher) => {
+              if (pitcher.id !== selectedPitcher.id) return pitcher;
+              updatedPitcher = {
+                ...pitcher,
+                workouts: pitcher.workouts.filter((w) => w.id !== workoutId),
+              };
+              return updatedPitcher;
+            });
+            return { ...prev, pitchers: nextPitchers };
+          });
+          if (updatedPitcher) setSelectedPitcher(updatedPitcher);
+        }
+
+        function toggleWorkoutComplete(workoutId) {
+          if (!selectedPitcher) return;
+          let updatedPitcher = null;
+          updateData((prev) => {
+            const nextPitchers = prev.pitchers.map((pitcher) => {
+              if (pitcher.id !== selectedPitcher.id) return pitcher;
+              updatedPitcher = {
+                ...pitcher,
+                workouts: pitcher.workouts.map((w) =>
+                  w.id === workoutId ? { ...w, completed: !w.completed } : w
+                ),
+              };
+              return updatedPitcher;
+            });
+            return { ...prev, pitchers: nextPitchers };
+          });
+          if (updatedPitcher) setSelectedPitcher(updatedPitcher);
+        }
+
+        function addCategory(category) {
+          updateData((prev) => ({
+            ...prev,
+            exerciseCategories: [...prev.exerciseCategories, category],
+          }));
+        }
+
+        function updateCategory(category) {
+          updateData((prev) => ({
+            ...prev,
+            exerciseCategories: prev.exerciseCategories.map((c) => (c.id === category.id ? category : c)),
+          }));
+        }
+
+        function deleteCategory(categoryId) {
+          updateData((prev) => ({
+            ...prev,
+            exerciseCategories: prev.exerciseCategories.filter((c) => c.id !== categoryId),
+          }));
+        }
+
+        function addExercise(exercise) {
+          updateData((prev) => ({
+            ...prev,
+            exercises: [...prev.exercises, exercise],
+          }));
+        }
+
+        function updateExercise(exercise) {
+          updateData((prev) => ({
+            ...prev,
+            exercises: prev.exercises.map((e) => (e.id === exercise.id ? exercise : e)),
+          }));
+        }
+
+        function deleteExercise(exerciseId) {
+          updateData((prev) => ({
+            ...prev,
+            exercises: prev.exercises.filter((e) => e.id !== exerciseId),
+          }));
+        }
+
+        function exportPitchers() {
+          downloadTextFile("pitchers.txt", { pitchers: data.pitchers });
+        }
+
+        function exportCategories() {
+          downloadTextFile("exercise-categories.txt", { exerciseCategories: data.exerciseCategories });
+        }
+
+        function exportExercises() {
+          downloadTextFile("exercises.txt", { exercises: data.exercises });
+        }
+
+        function exportAll() {
+          downloadTextFile("pitching-program-all.txt", data);
+        }
+
+        async function importPitchers() {
+          hiddenFileInput(async (file) => {
+            try {
+              const parsed = await readJsonFile(file);
+              if (!parsed || !Array.isArray(parsed.pitchers)) {
+                alert("Invalid pitchers file.");
+                return;
+              }
+              if (!confirm("Replace current pitchers with imported pitchers?")) return;
+              updateData((prev) => ({
+                ...prev,
+                pitchers: parsed.pitchers,
+              }));
+              setSelectedPitcher(null);
+              setView("pitchers");
+              alert("Pitchers imported successfully.");
+            } catch (err) {
+              alert(err.message || "Failed to import pitchers.");
+            }
+          });
+        }
+
+        async function importCategories() {
+          hiddenFileInput(async (file) => {
+            try {
+              const parsed = await readJsonFile(file);
+              if (!parsed || !Array.isArray(parsed.exerciseCategories)) {
+                alert("Invalid exercise categories file.");
+                return;
+              }
+
+              const normalized = parsed.exerciseCategories.map((category) => ({
+                id: category.id || uuid(),
+                name: String(category.name || "").trim(),
+              })).filter((c) => c.name);
+
+              if (!confirm("Replace current exercise categories with imported categories?")) return;
+
+              const importedIds = new Set(normalized.map((c) => c.id));
+              const invalidExercises = data.exercises.some((exercise) => !importedIds.has(exercise.categoryId));
+              if (invalidExercises) {
+                alert("Cannot import these categories because some current exercises would reference missing categories. Import categories before exercises, or replace exercises too.");
+                return;
+              }
+
+              updateData((prev) => ({
+                ...prev,
+                exerciseCategories: normalized,
+              }));
+
+              alert("Exercise categories imported successfully.");
+            } catch (err) {
+              alert(err.message || "Failed to import categories.");
+            }
+          });
+        }
+
+        async function importExercises() {
+          hiddenFileInput(async (file) => {
+            try {
+              const parsed = await readJsonFile(file);
+              if (!parsed || !Array.isArray(parsed.exercises)) {
+                alert("Invalid exercises file.");
+                return;
+              }
+
+              const categoryIds = new Set(data.exerciseCategories.map((c) => c.id));
+              const invalid = parsed.exercises.some((exercise) => !categoryIds.has(exercise.categoryId));
+              if (invalid) {
+                alert("One or more imported exercises reference categories that do not exist in this app. Import categories first.");
+                return;
+              }
+
+              if (!confirm("Replace current exercises with imported exercises?")) return;
+
+              updateData((prev) => ({
+                ...prev,
+                exercises: parsed.exercises,
+              }));
+
+              alert("Exercises imported successfully.");
+            } catch (err) {
+              alert(err.message || "Failed to import exercises.");
+            }
+          });
+        }
+
+        async function importAll() {
+          hiddenFileInput(async (file) => {
+            try {
+              const parsed = await readJsonFile(file);
+              if (
+                !parsed ||
+                !Array.isArray(parsed.pitchers) ||
+                !Array.isArray(parsed.exerciseCategories) ||
+                !Array.isArray(parsed.exercises)
+              ) {
+                alert("Invalid full backup file.");
+                return;
+              }
+
+              const categoryIds = new Set(parsed.exerciseCategories.map((c) => c.id));
+              const invalid = parsed.exercises.some((exercise) => !categoryIds.has(exercise.categoryId));
+              if (invalid) {
+                alert("Backup file is invalid: some exercises reference missing categories.");
+                return;
+              }
+
+              if (!confirm("Replace ALL current data with the imported backup?")) return;
+
+              setData({
+                pitchers: parsed.pitchers,
+                exerciseCategories: parsed.exerciseCategories,
+                exercises: parsed.exercises,
+                lastUpdated: new Date().toISOString(),
+              });
+
+              setSelectedPitcher(null);
+              setView("pitchers");
+              alert("Full backup imported successfully.");
+            } catch (err) {
+              alert(err.message || "Failed to import backup.");
+            }
+          });
+        }
+
+        const currentPitcher =
+          selectedPitcher ? data.pitchers.find((p) => p.id === selectedPitcher.id) || selectedPitcher : null;
+
+        return React.createElement(
+          "div",
+          { className: "min-h-screen bg-gradient-to-br from-gray-50 to-gray-100" },
+          React.createElement(
+            "header",
+            { className: "bg-baseball-navy text-white shadow-lg sticky top-0 z-40" },
+            React.createElement(
+              "div",
+              { className: "max-w-6xl mx-auto px-4 py-4" },
+              React.createElement(
+                "div",
+                { className: "flex items-center justify-between gap-4 flex-wrap" },
+                React.createElement(
+                  "div",
+                  { className: "flex items-center gap-3" },
+                  React.createElement("div", { className: "text-3xl" }, "⚾"),
+                  React.createElement("h1", { className: "text-3xl font-bold" }, "Pitching Program")
+                ),
+                React.createElement(
+                  "nav",
+                  { className: "flex gap-2 flex-wrap" },
+                  React.createElement(
+                    "button",
+                    {
+                      onClick: () => setView("pitchers"),
+                      className: `px-4 py-2 rounded-lg font-semibold transition-colors ${
+                        view === "pitchers" ? "bg-baseball-red text-white" : "bg-gray-700 hover:bg-gray-600"
+                      }`,
+                    },
+                    "Pitchers"
+                  ),
+                  React.createElement(
+                    "button",
+                    {
+                      onClick: () => setView("exercise-library"),
+                      className: `px-4 py-2 rounded-lg font-semibold transition-colors ${
+                        view === "exercise-library" ? "bg-baseball-red text-white" : "bg-gray-700 hover:bg-gray-600"
+                      }`,
+                    },
+                    "Exercises"
+                  )
+                )
+              )
+            )
+          ),
+          React.createElement(
+            "main",
+            { className: "max-w-6xl mx-auto px-4 py-8" },
+            loading
+              ? React.createElement(
+                  "div",
+                  { className: "card text-center py-12" },
+                  React.createElement("p", { className: "text-xl text-gray-600" }, "Loading your program...")
+                )
+              : React.createElement(
+                  React.Fragment,
+                  null,
+                  React.createElement(
+                    "div",
+                    { className: "card mb-6" },
+                    React.createElement("h2", { className: "text-xl font-bold mb-4" }, "Manual Backup / Transfer"),
+                    React.createElement(
+                      "div",
+                      { className: "grid grid-cols-1 md:grid-cols-2 gap-4" },
+                      React.createElement(
+                        "div",
+                        null,
+                        React.createElement("h3", { className: "font-semibold mb-2" }, "Export"),
+                        React.createElement(
+                          "div",
+                          { className: "flex flex-wrap gap-2" },
+                          React.createElement("button", { className: "btn-secondary", onClick: exportPitchers }, "Export Pitchers"),
+                          React.createElement("button", { className: "btn-secondary", onClick: exportCategories }, "Export Categories"),
+                          React.createElement("button", { className: "btn-secondary", onClick: exportExercises }, "Export Exercises"),
+                          React.createElement("button", { className: "btn-primary", onClick: exportAll }, "Export All")
+                        )
+                      ),
+                      React.createElement(
+                        "div",
+                        null,
+                        React.createElement("h3", { className: "font-semibold mb-2" }, "Import"),
+                        React.createElement(
+                          "div",
+                          { className: "flex flex-wrap gap-2" },
+                          React.createElement("button", { className: "btn-secondary", onClick: importPitchers }, "Import Pitchers"),
+                          React.createElement("button", { className: "btn-secondary", onClick: importCategories }, "Import Categories"),
+                          React.createElement("button", { className: "btn-secondary", onClick: importExercises }, "Import Exercises"),
+                          React.createElement("button", { className: "btn-primary", onClick: importAll }, "Import All")
+                        )
+                      )
+                    ),
+                    React.createElement(
+                      "p",
+                      { className: "text-sm text-gray-600 mt-4" },
+                      "The app still auto-saves in this browser. Use exports to move data to another browser or device."
+                    )
+                  ),
+
+                  view === "pitchers" &&
+                    React.createElement(
+                      "div",
+                      null,
+                      React.createElement(
+                        "div",
+                        { className: "flex justify-between items-center mb-6 gap-4 flex-wrap" },
+                        React.createElement("h2", { className: "text-2xl font-bold" }, `Your Pitchers (${data.pitchers.length})`),
+                        React.createElement(
+                          "button",
+                          {
+                            className: "btn-primary",
+                            onClick: () => {
+                              setEditingPitcher(null);
+                              setShowPitcherModal(true);
+                            },
+                          },
+                          "+ Add Pitcher"
+                        )
+                      ),
+                      showPitcherModal
+                        ? React.createElement(AddPitcherModal, {
+                            onAdd: upsertPitcher,
+                            onClose: () => {
+                              setShowPitcherModal(false);
+                              setEditingPitcher(null);
+                            },
+                            editPitcher: editingPitcher,
+                          })
+                        : null,
+                      data.pitchers.length === 0
+                        ? React.createElement(
+                            "div",
+                            { className: "card text-center py-12" },
+                            React.createElement(
+                              "p",
+                              { className: "text-xl text-gray-600 mb-4" },
+                              "No pitchers yet. Add your first pitcher to get started!"
+                            ),
+                            React.createElement(
+                              "button",
+                              {
+                                className: "btn-primary inline-block",
+                                onClick: () => {
+                                  setEditingPitcher(null);
+                                  setShowPitcherModal(true);
+                                },
+                              },
+                              "+ Add Pitcher"
+                            )
+                          )
+                        : React.createElement(
+                            "div",
+                            { className: "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4" },
+                            data.pitchers.map((pitcher) =>
+                              React.createElement(PitcherCard, {
+                                key: pitcher.id,
+                                pitcher,
+                                onSelect: selectPitcher,
+                                onDelete: deletePitcher,
+                                onEdit: (p) => {
+                                  setEditingPitcher(p);
+                                  setShowPitcherModal(true);
+                                },
+                              })
+                            )
+                          )
+                    ),
+
+                  view === "pitcher-detail" &&
+                    currentPitcher &&
+                    React.createElement(PitcherDetail, {
+                      pitcher: currentPitcher,
+                      categories: data.exerciseCategories,
+                      onCreateWorkout: () => setView("workout-builder"),
+                      onDeleteWorkout: deleteWorkout,
+                      onCompleteWorkout: toggleWorkoutComplete,
+                      onBack: () => {
+                        setView("pitchers");
+                        setSelectedPitcher(null);
+                      },
+                      onEditPitcher: () => {
+                        setEditingPitcher(currentPitcher);
+                        setShowPitcherModal(true);
+                      },
+                    }),
+
+                  view === "workout-builder" &&
+                    currentPitcher &&
+                    React.createElement(WorkoutBuilder, {
+                      pitcher: currentPitcher,
+                      exercises: data.exercises,
+                      categories: data.exerciseCategories,
+                      onSave: createWorkout,
+                      onCancel: () => setView("pitcher-detail"),
+                    }),
+
+                  view === "exercise-library" &&
+                    React.createElement(
+                      "div",
+                      { className: "space-y-6" },
+                      React.createElement(CategoryManager, {
+                        categories: data.exerciseCategories,
+                        exercises: data.exercises,
+                        onAddCategory: addCategory,
+                        onUpdateCategory: updateCategory,
+                        onDeleteCategory: deleteCategory,
+                      }),
+                      React.createElement(ExerciseManager, {
+                        exercises: data.exercises,
+                        categories: data.exerciseCategories,
+                        onAddExercise: addExercise,
+                        onUpdateExercise: updateExercise,
+                        onDeleteExercise: deleteExercise,
+                      })
+                    )
+                )
+          ),
+          React.createElement(
+            "footer",
+            { className: "bg-gray-800 text-gray-300 text-center py-4 mt-12" },
+            React.createElement(
+              "p",
+              null,
+              "Pitching Program App • Auto-saves in this browser • Export files to move between devices"
+            )
+          )
+        );
+      }
+
+      ReactDOM.createRoot(document.getElementById("root")).render(
+        React.createElement(React.StrictMode, null, React.createElement(App))
+      );
+    </script>
+  </body>
+</html>
