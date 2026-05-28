@@ -76,6 +76,59 @@
         width: 100%;
         display: block;
       }
+      .modal-overlay-shell {
+        position: fixed;
+        inset: 0;
+        z-index: 50;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 1rem;
+        background: rgb(17 24 39 / 0.52);
+        backdrop-filter: blur(4px);
+        animation: modalFadeIn 0.22s ease;
+      }
+      .modal-panel {
+        width: 100%;
+        animation: modalPopIn 0.24s cubic-bezier(0.2, 0.8, 0.2, 1);
+      }
+      .page-transition {
+        animation: pageSlideIn 0.28s cubic-bezier(0.2, 0.8, 0.2, 1);
+      }
+      .card-elevated {
+        border-radius: 1rem;
+        border: 1px solid rgb(229 231 235);
+        background: white;
+        box-shadow: 0 18px 48px rgb(15 23 42 / 0.16);
+      }
+      @keyframes modalFadeIn {
+        from {
+          opacity: 0;
+        }
+        to {
+          opacity: 1;
+        }
+      }
+      @keyframes modalPopIn {
+        from {
+          opacity: 0;
+          transform: translateY(18px) scale(0.97);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0) scale(1);
+        }
+      }
+      @keyframes pageSlideIn {
+        from {
+          opacity: 0;
+          transform: translateY(22px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
     </style>
   </head>
   <body>
@@ -341,6 +394,77 @@
         });
       }
 
+      function ModalShell({ title, subtitle = "", maxWidth = "max-w-md", onClose, children }) {
+        return React.createElement(
+          "div",
+          { className: "modal-overlay-shell", onClick: onClose },
+          React.createElement(
+            "div",
+            {
+              className: `modal-panel card-elevated ${maxWidth} max-h-[90vh] overflow-y-auto`,
+              onClick: (e) => e.stopPropagation(),
+            },
+            React.createElement(
+              "div",
+              { className: "flex items-start justify-between gap-4 border-b border-gray-200 px-6 py-5" },
+              React.createElement(
+                "div",
+                null,
+                React.createElement("h2", { className: "text-2xl font-bold text-baseball-navy" }, title),
+                subtitle
+                  ? React.createElement("p", { className: "text-sm text-gray-600 mt-1" }, subtitle)
+                  : null
+              ),
+              React.createElement(
+                "button",
+                {
+                  type: "button",
+                  className: "rounded-lg bg-gray-100 px-3 py-2 text-sm font-semibold text-gray-700 transition hover:bg-gray-200",
+                  onClick: onClose,
+                },
+                "Close"
+              )
+            ),
+            React.createElement("div", { className: "px-6 py-5" }, children)
+          )
+        );
+      }
+
+      function DeleteConfirmModal({ title, message, confirmLabel = "Delete", onConfirm, onClose }) {
+        return React.createElement(
+          ModalShell,
+          {
+            title,
+            subtitle: "This action cannot be undone.",
+            maxWidth: "max-w-lg",
+            onClose,
+          },
+          React.createElement(
+            "div",
+            { className: "space-y-5" },
+            React.createElement(
+              "div",
+              { className: "rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900" },
+              message
+            ),
+            React.createElement(
+              "div",
+              { className: "flex gap-2" },
+              React.createElement(
+                "button",
+                { type: "button", className: "btn-primary flex-1", onClick: onConfirm },
+                confirmLabel
+              ),
+              React.createElement(
+                "button",
+                { type: "button", className: "btn-secondary flex-1", onClick: onClose },
+                "Cancel"
+              )
+            )
+          )
+        );
+      }
+
       function AddPitcherModal({ onAdd, onClose, editPitcher = null }) {
         const [form, setForm] = useState(
           editPitcher || {
@@ -389,128 +513,185 @@
         }
 
         return React.createElement(
-          "div",
-          { className: "fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50" },
+          ModalShell,
+          {
+            title: editPitcher ? "Edit Pitcher" : "Add New Pitcher",
+            subtitle: "Update pitcher details and arsenal information.",
+            maxWidth: "max-w-md",
+            onClose,
+          },
           React.createElement(
-            "div",
-            { className: "card max-w-md w-full max-h-[90vh] overflow-y-auto" },
-            React.createElement(
-              "h2",
-              { className: "text-2xl font-bold mb-4" },
-              editPitcher ? "Edit Pitcher" : "Add New Pitcher"
+            "form",
+            { onSubmit: submit, className: "space-y-4" },
+            React.createElement("div", null,
+              React.createElement("label", { className: "block text-sm font-semibold mb-1" }, "Pitcher Name"),
+              React.createElement("input", {
+                className: "form-input",
+                value: form.name,
+                required: true,
+                onChange: (e) => setForm((p) => ({ ...p, name: e.target.value })),
+              })
             ),
+            React.createElement("div", null,
+              React.createElement("label", { className: "block text-sm font-semibold mb-1" }, "Age"),
+              React.createElement("input", {
+                type: "number",
+                className: "form-input",
+                value: form.age,
+                onChange: (e) => setForm((p) => ({ ...p, age: parseInt(e.target.value) || 0 })),
+              })
+            ),
+            React.createElement("div", null,
+              React.createElement("label", { className: "block text-sm font-semibold mb-1" }, "Height"),
+              React.createElement("input", {
+                className: "form-input",
+                value: form.height,
+                onChange: (e) => setForm((p) => ({ ...p, height: e.target.value })),
+              })
+            ),
+            React.createElement("div", null,
+              React.createElement("label", { className: "block text-sm font-semibold mb-1" }, "Weight (lbs)"),
+              React.createElement("input", {
+                type: "number",
+                className: "form-input",
+                value: form.weight,
+                onChange: (e) => setForm((p) => ({ ...p, weight: parseInt(e.target.value) || 0 })),
+              })
+            ),
+            React.createElement("div", null,
+              React.createElement("label", { className: "block text-sm font-semibold mb-1" }, "Position"),
+              React.createElement(
+                "select",
+                {
+                  className: "form-input",
+                  value: form.position,
+                  onChange: (e) => setForm((p) => ({ ...p, position: e.target.value })),
+                },
+                React.createElement("option", { value: "starter" }, "Starter"),
+                React.createElement("option", { value: "reliever" }, "Reliever"),
+                React.createElement("option", { value: "closer" }, "Closer")
+              )
+            ),
+            React.createElement("div", null,
+              React.createElement("label", { className: "block text-sm font-semibold mb-1" }, "Throws"),
+              React.createElement(
+                "select",
+                {
+                  className: "form-input",
+                  value: form.throws,
+                  onChange: (e) => setForm((p) => ({ ...p, throws: e.target.value })),
+                },
+                React.createElement("option", { value: "right" }, "Right Handed"),
+                React.createElement("option", { value: "left" }, "Left Handed")
+              )
+            ),
+            React.createElement("div", null,
+              React.createElement("label", { className: "block text-sm font-semibold mb-1" }, "Main Pitch"),
+              React.createElement(
+                "select",
+                {
+                  className: "form-input",
+                  value: form.mainPitch,
+                  onChange: (e) =>
+                    setForm((p) => ({
+                      ...p,
+                      mainPitch: e.target.value,
+                      secondaryPitches: p.secondaryPitches.filter((sp) => sp !== e.target.value),
+                    })),
+                },
+                pitches.map((pitch) => React.createElement("option", { key: pitch, value: pitch }, pitch))
+              )
+            ),
+            React.createElement("div", null,
+              React.createElement("label", { className: "block text-sm font-medium mb-2" }, "Secondary Pitches"),
+              React.createElement(
+                "div",
+                { className: "grid grid-cols-2 gap-2" },
+                pitches
+                  .filter((pitch) => pitch !== form.mainPitch)
+                  .map((pitch) =>
+                    React.createElement(
+                      "label",
+                      { key: pitch, className: "flex items-center" },
+                      React.createElement("input", {
+                        type: "checkbox",
+                        checked: form.secondaryPitches.includes(pitch),
+                        onChange: () => toggleSecondaryPitch(pitch),
+                      }),
+                      React.createElement("span", { className: "ml-2 text-sm" }, pitch)
+                    )
+                  )
+              )
+            ),
+            React.createElement(
+              "div",
+              { className: "flex gap-2 pt-4" },
+              React.createElement(
+                "button",
+                { type: "submit", className: "btn-primary flex-1" },
+                editPitcher ? "Save Pitcher" : "Add Pitcher"
+              ),
+              React.createElement(
+                "button",
+                { type: "button", onClick: onClose, className: "btn-secondary flex-1" },
+                "Cancel"
+              )
+            )
+          )
+        );
+      }
+
+      function ExerciseCategoryModal({ onSave, onClose, categories, editCategory = null }) {
+          const [name, setName] = useState(editCategory?.name || "");
+
+          function submit(e) {
+            e.preventDefault();
+            const trimmed = name.trim();
+            if (!trimmed) return;
+
+            const duplicate = categories.find(
+              (category) => category.name.toLowerCase() === trimmed.toLowerCase() && category.id !== editCategory?.id
+            );
+            if (duplicate) {
+              alert("A category with that name already exists.");
+              return;
+            }
+
+            onSave({ id: editCategory?.id || uuid(), name: trimmed });
+            onClose();
+          }
+
+          return React.createElement(
+            ModalShell,
+            {
+              title: editCategory ? "Edit Exercise Category" : "Add Exercise Category",
+              subtitle: "Group related drills and training work into reusable buckets.",
+              maxWidth: "max-w-lg",
+              onClose,
+            },
             React.createElement(
               "form",
               { onSubmit: submit, className: "space-y-4" },
-              React.createElement("div", null,
-                React.createElement("label", { className: "block text-sm font-semibold mb-1" }, "Pitcher Name"),
+              React.createElement(
+                "div",
+                null,
+                React.createElement("label", { className: "block text-sm font-semibold mb-1" }, "Category Name"),
                 React.createElement("input", {
                   className: "form-input",
-                  value: form.name,
+                  value: name,
+                  placeholder: "Arm Care, Recovery, Bullpen, etc.",
                   required: true,
-                  onChange: (e) => setForm((p) => ({ ...p, name: e.target.value })),
+                  autoFocus: true,
+                  onChange: (e) => setName(e.target.value),
                 })
-              ),
-              React.createElement("div", null,
-                React.createElement("label", { className: "block text-sm font-semibold mb-1" }, "Age"),
-                React.createElement("input", {
-                  type: "number",
-                  className: "form-input",
-                  value: form.age,
-                  onChange: (e) => setForm((p) => ({ ...p, age: parseInt(e.target.value) || 0 })),
-                })
-              ),
-              React.createElement("div", null,
-                React.createElement("label", { className: "block text-sm font-semibold mb-1" }, "Height"),
-                React.createElement("input", {
-                  className: "form-input",
-                  value: form.height,
-                  onChange: (e) => setForm((p) => ({ ...p, height: e.target.value })),
-                })
-              ),
-              React.createElement("div", null,
-                React.createElement("label", { className: "block text-sm font-semibold mb-1" }, "Weight (lbs)"),
-                React.createElement("input", {
-                  type: "number",
-                  className: "form-input",
-                  value: form.weight,
-                  onChange: (e) => setForm((p) => ({ ...p, weight: parseInt(e.target.value) || 0 })),
-                })
-              ),
-              React.createElement("div", null,
-                React.createElement("label", { className: "block text-sm font-semibold mb-1" }, "Position"),
-                React.createElement(
-                  "select",
-                  {
-                    className: "form-input",
-                    value: form.position,
-                    onChange: (e) => setForm((p) => ({ ...p, position: e.target.value })),
-                  },
-                  React.createElement("option", { value: "starter" }, "Starter"),
-                  React.createElement("option", { value: "reliever" }, "Reliever"),
-                  React.createElement("option", { value: "closer" }, "Closer")
-                )
-              ),
-              React.createElement("div", null,
-                React.createElement("label", { className: "block text-sm font-semibold mb-1" }, "Throws"),
-                React.createElement(
-                  "select",
-                  {
-                    className: "form-input",
-                    value: form.throws,
-                    onChange: (e) => setForm((p) => ({ ...p, throws: e.target.value })),
-                  },
-                  React.createElement("option", { value: "right" }, "Right Handed"),
-                  React.createElement("option", { value: "left" }, "Left Handed")
-                )
-              ),
-              React.createElement("div", null,
-                React.createElement("label", { className: "block text-sm font-semibold mb-1" }, "Main Pitch"),
-                React.createElement(
-                  "select",
-                  {
-                    className: "form-input",
-                    value: form.mainPitch,
-                    onChange: (e) =>
-                      setForm((p) => ({
-                        ...p,
-                        mainPitch: e.target.value,
-                        secondaryPitches: p.secondaryPitches.filter((sp) => sp !== e.target.value),
-                      })),
-                  },
-                  pitches.map((pitch) =>
-                    React.createElement("option", { key: pitch, value: pitch }, pitch)
-                  )
-                )
-              ),
-              React.createElement("div", null,
-                React.createElement("label", { className: "block text-sm font-medium mb-2" }, "Secondary Pitches"),
-                React.createElement(
-                  "div",
-                  { className: "grid grid-cols-2 gap-2" },
-                  pitches
-                    .filter((pitch) => pitch !== form.mainPitch)
-                    .map((pitch) =>
-                      React.createElement(
-                        "label",
-                        { key: pitch, className: "flex items-center" },
-                        React.createElement("input", {
-                          type: "checkbox",
-                          checked: form.secondaryPitches.includes(pitch),
-                          onChange: () => toggleSecondaryPitch(pitch),
-                        }),
-                        React.createElement("span", { className: "ml-2 text-sm" }, pitch)
-                      )
-                    )
-                )
               ),
               React.createElement(
                 "div",
-                { className: "flex gap-2 pt-4" },
+                { className: "flex gap-2 pt-2" },
                 React.createElement(
                   "button",
                   { type: "submit", className: "btn-primary flex-1" },
-                  editPitcher ? "Save Pitcher" : "Add Pitcher"
+                  editCategory ? "Save Category" : "Add Category"
                 ),
                 React.createElement(
                   "button",
@@ -519,9 +700,222 @@
                 )
               )
             )
-          )
-        );
-      }
+          );
+        }
+
+        function ExerciseModal({ onSave, onClose, categories, editExercise = null }) {
+          const [form, setForm] = useState({
+            categoryId: editExercise?.categoryId || categories[0]?.id || "",
+            name: editExercise?.name || "",
+            description: editExercise?.description || "",
+            sets: editExercise?.sets ?? 3,
+            reps: editExercise?.reps || "10",
+            rest: editExercise?.rest ?? 60,
+            videoName: editExercise?.videoName || "",
+            videoType: editExercise?.videoType || "",
+            videoData: editExercise?.videoData || "",
+          });
+
+          useEffect(() => {
+            if (!form.categoryId && categories.length > 0) {
+              setForm((prev) => ({ ...prev, categoryId: categories[0].id }));
+            }
+          }, [categories]);
+
+          function handleVideoFile(file) {
+            if (!file) return;
+
+            const maxSizeMB = 100;
+            const maxBytes = maxSizeMB * 1024 * 1024;
+
+            if (file.size > maxBytes) {
+              alert(`Video is too large. Please choose a file smaller than ${maxSizeMB} MB.`);
+              return;
+            }
+
+            const reader = new FileReader();
+            reader.onload = () => {
+              setForm((prev) => ({
+                ...prev,
+                videoName: file.name || "exercise-video",
+                videoType: file.type || "video/mp4",
+                videoData: reader.result,
+              }));
+            };
+            reader.onerror = () => {
+              alert("Failed to read video file.");
+            };
+            reader.readAsDataURL(file);
+          }
+
+          function submit(e) {
+            e.preventDefault();
+            if (!form.name.trim()) return;
+            if (!form.categoryId) {
+              alert("Please choose a category.");
+              return;
+            }
+
+            onSave({
+              id: editExercise?.id || uuid(),
+              categoryId: form.categoryId,
+              name: form.name.trim(),
+              description: form.description.trim(),
+              sets: Number(form.sets) || 1,
+              reps: form.reps,
+              rest: Number(form.rest) || 0,
+              videoName: form.videoName || "",
+              videoType: form.videoType || "",
+              videoData: form.videoData || "",
+            });
+            onClose();
+          }
+
+          return React.createElement(
+            ModalShell,
+            {
+              title: editExercise ? "Edit Exercise" : "Add Exercise",
+              subtitle: "Capture drill details, workload targets, and optional demo video.",
+              maxWidth: "max-w-3xl",
+              onClose,
+            },
+            React.createElement(
+              "form",
+              { onSubmit: submit, className: "space-y-4" },
+              React.createElement(
+                "div",
+                { className: "grid grid-cols-1 md:grid-cols-2 gap-4" },
+                React.createElement("div", null,
+                  React.createElement("label", { className: "block text-sm font-semibold mb-1" }, "Category"),
+                  React.createElement(
+                    "select",
+                    {
+                      className: "form-input",
+                      value: form.categoryId,
+                      onChange: (e) => setForm((prev) => ({ ...prev, categoryId: e.target.value })),
+                    },
+                    categories.map((category) =>
+                      React.createElement("option", { key: category.id, value: category.id }, category.name)
+                    )
+                  )
+                ),
+                React.createElement("div", null,
+                  React.createElement("label", { className: "block text-sm font-semibold mb-1" }, "Exercise Name"),
+                  React.createElement("input", {
+                    className: "form-input",
+                    value: form.name,
+                    required: true,
+                    autoFocus: true,
+                    onChange: (e) => setForm((prev) => ({ ...prev, name: e.target.value })),
+                  })
+                )
+              ),
+              React.createElement(
+                "div",
+                null,
+                React.createElement("label", { className: "block text-sm font-semibold mb-1" }, "Description"),
+                React.createElement("textarea", {
+                  className: "form-textarea h-24",
+                  value: form.description,
+                  onChange: (e) => setForm((prev) => ({ ...prev, description: e.target.value })),
+                })
+              ),
+              React.createElement(
+                "div",
+                { className: "grid grid-cols-1 md:grid-cols-3 gap-3" },
+                React.createElement("div", null,
+                  React.createElement("label", { className: "block text-sm font-semibold mb-1" }, "Sets"),
+                  React.createElement("input", {
+                    type: "number",
+                    className: "form-input",
+                    value: form.sets,
+                    onChange: (e) => setForm((prev) => ({ ...prev, sets: parseInt(e.target.value) || 1 })),
+                  })
+                ),
+                React.createElement("div", null,
+                  React.createElement("label", { className: "block text-sm font-semibold mb-1" }, "Reps"),
+                  React.createElement("input", {
+                    className: "form-input",
+                    value: form.reps,
+                    onChange: (e) => setForm((prev) => ({ ...prev, reps: e.target.value })),
+                  })
+                ),
+                React.createElement("div", null,
+                  React.createElement("label", { className: "block text-sm font-semibold mb-1" }, "Rest (sec)"),
+                  React.createElement("input", {
+                    type: "number",
+                    className: "form-input",
+                    value: form.rest,
+                    onChange: (e) => setForm((prev) => ({ ...prev, rest: parseInt(e.target.value) || 0 })),
+                  })
+                )
+              ),
+              React.createElement(
+                "div",
+                { className: "rounded-xl border border-gray-200 bg-gray-50 p-4 space-y-3" },
+                React.createElement("label", { className: "block text-sm font-semibold" }, "Exercise Demo Video"),
+                React.createElement(
+                  "div",
+                  { className: "flex flex-wrap gap-2" },
+                  React.createElement("label", { className: "btn-secondary cursor-pointer inline-block" },
+                    "Upload Video",
+                    React.createElement("input", {
+                      type: "file",
+                      accept: "video/*",
+                      style: { display: "none" },
+                      onChange: (e) => handleVideoFile(e.target.files?.[0]),
+                    })
+                  ),
+                  React.createElement("label", { className: "btn-secondary cursor-pointer inline-block" },
+                    "Record Video",
+                    React.createElement("input", {
+                      type: "file",
+                      accept: "video/*",
+                      capture: "environment",
+                      style: { display: "none" },
+                      onChange: (e) => handleVideoFile(e.target.files?.[0]),
+                    })
+                  ),
+                  form.videoData
+                    ? React.createElement(
+                        "button",
+                        {
+                          type: "button",
+                          className: "btn-secondary",
+                          onClick: () => setForm((prev) => ({ ...prev, videoName: "", videoType: "", videoData: "" })),
+                        },
+                        "Remove Video"
+                      )
+                    : null
+                ),
+                form.videoName
+                  ? React.createElement("p", { className: "text-sm text-gray-600" }, "Selected: ", form.videoName)
+                  : React.createElement("p", { className: "text-sm text-gray-500" }, "No video attached."),
+                form.videoData
+                  ? React.createElement(
+                      "div",
+                      { className: "mt-2 max-w-xl" },
+                      React.createElement(VideoPreview, { src: form.videoData, maxHeight: "240px" })
+                    )
+                  : null
+              ),
+              React.createElement(
+                "div",
+                { className: "flex gap-2 pt-2" },
+                React.createElement(
+                  "button",
+                  { type: "submit", className: "btn-primary flex-1" },
+                  editExercise ? "Save Exercise" : "Add Exercise"
+                ),
+                React.createElement(
+                  "button",
+                  { type: "button", onClick: onClose, className: "btn-secondary flex-1" },
+                  "Cancel"
+                )
+              )
+            )
+          );
+        }
 
       function PitcherCard({ pitcher, onSelect, onDelete, onEdit }) {
         return React.createElement(
@@ -576,7 +970,7 @@
                 className: "btn-secondary btn-small",
                 onClick: (e) => {
                   e.stopPropagation();
-                  onDelete(pitcher.id);
+                  onDelete(pitcher);
                 },
               },
               "Delete"
@@ -965,7 +1359,7 @@
                           ),
                           React.createElement(
                             "button",
-                            { onClick: () => onDeleteWorkout(workout.id), className: "btn-secondary btn-small" },
+                            { onClick: () => onDeleteWorkout(workout), className: "btn-secondary btn-small" },
                             "Delete"
                           )
                         )
@@ -1075,9 +1469,8 @@
             alert("Cannot delete a category that still has exercises assigned to it.");
             return;
           }
-          if (confirm("Delete this category?")) {
-            onDeleteCategory(categoryId);
-          }
+          const category = categories.find((c) => c.id === categoryId);
+          if (category) onDeleteCategory(category);
         }
 
         return React.createElement(
@@ -1091,41 +1484,21 @@
               "button",
               {
                 className: "btn-primary",
-                onClick: () => {
-                  if (showForm) reset();
-                  else setShowForm(true);
-                },
+                onClick: () => setEditingCategory({ id: "", name: "" }),
               },
-              showForm ? "✕ Close" : "+ Add Category"
+              "+ Add Category"
             )
           ),
-          showForm
-            ? React.createElement(
-                "form",
-                { onSubmit: submit, className: "bg-gray-50 rounded-lg p-4 mb-4 border border-gray-300 space-y-3" },
-                React.createElement("h3", { className: "font-semibold" }, editingCategory ? "Edit Category" : "Create New Category"),
-                React.createElement("input", {
-                  className: "form-input",
-                  value: name,
-                  placeholder: "Category Name",
-                  onChange: (e) => setName(e.target.value),
-                  required: true,
-                }),
-                React.createElement(
-                  "div",
-                  { className: "flex gap-2" },
-                  React.createElement(
-                    "button",
-                    { type: "submit", className: "btn-primary" },
-                    editingCategory ? "Save Category" : "Create Category"
-                  ),
-                  React.createElement(
-                    "button",
-                    { type: "button", onClick: reset, className: "btn-secondary" },
-                    "Cancel"
-                  )
-                )
-              )
+          editingCategory
+            ? React.createElement(ExerciseCategoryModal, {
+                editCategory: editingCategory.id ? editingCategory : null,
+                categories,
+                onClose: () => setEditingCategory(null),
+                onSave: (category) => {
+                  if (editingCategory.id) onUpdateCategory(category);
+                  else onAddCategory(category);
+                },
+              })
             : null,
           categories.length === 0
             ? React.createElement("p", { className: "text-gray-500 text-center py-6" }, "No categories yet.")
@@ -1160,109 +1533,10 @@
       }
 
       function ExerciseManager({ exercises, categories, onAddExercise, onUpdateExercise, onDeleteExercise }) {
-        const [showForm, setShowForm] = useState(false);
         const [editingExercise, setEditingExercise] = useState(null);
-        const [form, setForm] = useState({
-          categoryId: categories[0]?.id || "",
-          name: "",
-          description: "",
-          sets: 3,
-          reps: "10",
-          rest: 60,
-          videoName: "",
-          videoType: "",
-          videoData: "",
-        });
-
-        useEffect(() => {
-          if (!editingExercise && categories.length > 0 && !form.categoryId) {
-            setForm((prev) => ({ ...prev, categoryId: categories[0].id }));
-          }
-        }, [categories]);
-
-        function reset() {
-          setShowForm(false);
-          setEditingExercise(null);
-          setForm({
-            categoryId: categories[0]?.id || "",
-            name: "",
-            description: "",
-            sets: 3,
-            reps: "10",
-            rest: 60,
-            videoName: "",
-            videoType: "",
-            videoData: "",
-          });
-        }
-
-        function handleVideoFile(file) {
-          if (!file) return;
-
-          const maxSizeMB = 100;
-          const maxBytes = maxSizeMB * 1024 * 1024;
-
-          if (file.size > maxBytes) {
-            alert(`Video is too large. Please choose a file smaller than ${maxSizeMB} MB.`);
-            return;
-          }
-
-          const reader = new FileReader();
-          reader.onload = () => {
-            setForm((prev) => ({
-              ...prev,
-              videoName: file.name || "exercise-video",
-              videoType: file.type || "video/mp4",
-              videoData: reader.result,
-            }));
-          };
-          reader.onerror = () => {
-            alert("Failed to read video file.");
-          };
-          reader.readAsDataURL(file);
-        }
-
-        function submit(e) {
-          e.preventDefault();
-          if (!form.name.trim()) return;
-          if (!form.categoryId) {
-            alert("Please choose a category.");
-            return;
-          }
-
-          const payload = {
-            id: editingExercise?.id || uuid(),
-            categoryId: form.categoryId,
-            name: form.name.trim(),
-            description: form.description.trim(),
-            sets: Number(form.sets) || 1,
-            reps: form.reps,
-            rest: Number(form.rest) || 0,
-            videoName: form.videoName || "",
-            videoType: form.videoType || "",
-            videoData: form.videoData || "",
-          };
-
-          if (editingExercise) onUpdateExercise(payload);
-          else onAddExercise(payload);
-
-          reset();
-        }
 
         function edit(exercise) {
           setEditingExercise(exercise);
-          setForm({
-            categoryId: exercise.categoryId,
-            name: exercise.name,
-            description: exercise.description,
-            sets: exercise.sets,
-            reps: exercise.reps,
-            rest: exercise.rest,
-            videoName: exercise.videoName || "",
-            videoType: exercise.videoType || "",
-            videoData: exercise.videoData || "",
-          });
-          setShowForm(true);
         }
 
         const grouped = {};
@@ -1283,13 +1557,10 @@
               "button",
               {
                 className: "btn-primary",
-                onClick: () => {
-                  if (showForm) reset();
-                  else setShowForm(true);
-                },
+                onClick: () => setEditingExercise({ id: "", categoryId: categories[0]?.id || "" }),
                 disabled: categories.length === 0,
               },
-              showForm ? "✕ Close" : "+ Add Exercise"
+              "+ Add Exercise"
             )
           ),
           categories.length === 0
@@ -1299,156 +1570,16 @@
                 "Create at least one category before adding exercises."
               )
             : null,
-          showForm
-            ? React.createElement(
-                "form",
-                { onSubmit: submit, className: "bg-gray-50 rounded-lg p-4 mb-4 border border-gray-300 space-y-3" },
-                React.createElement("h3", { className: "font-semibold" }, editingExercise ? "Edit Exercise" : "Create New Exercise"),
-
-                React.createElement("div", null,
-                  React.createElement("label", { className: "block text-sm font-semibold mb-1" }, "Category"),
-                  React.createElement(
-                    "select",
-                    {
-                      className: "form-input",
-                      value: form.categoryId,
-                      onChange: (e) => setForm((prev) => ({ ...prev, categoryId: e.target.value })),
-                    },
-                    categories.map((category) =>
-                      React.createElement("option", { key: category.id, value: category.id }, category.name)
-                    )
-                  )
-                ),
-
-                React.createElement("div", null,
-                  React.createElement("label", { className: "block text-sm font-semibold mb-1" }, "Exercise Name"),
-                  React.createElement("input", {
-                    className: "form-input",
-                    value: form.name,
-                    onChange: (e) => setForm((prev) => ({ ...prev, name: e.target.value })),
-                    required: true,
-                  })
-                ),
-
-                React.createElement("div", null,
-                  React.createElement("label", { className: "block text-sm font-semibold mb-1" }, "Description"),
-                  React.createElement("textarea", {
-                    className: "form-input h-20",
-                    value: form.description,
-                    onChange: (e) => setForm((prev) => ({ ...prev, description: e.target.value })),
-                  })
-                ),
-
-                React.createElement(
-                  "div",
-                  { className: "grid grid-cols-3 gap-2" },
-                  React.createElement("div", null,
-                    React.createElement("label", { className: "block text-sm font-semibold mb-1" }, "Sets"),
-                    React.createElement("input", {
-                      type: "number",
-                      className: "form-input",
-                      value: form.sets,
-                      onChange: (e) => setForm((prev) => ({ ...prev, sets: parseInt(e.target.value) || 1 })),
-                    })
-                  ),
-                  React.createElement("div", null,
-                    React.createElement("label", { className: "block text-sm font-semibold mb-1" }, "Reps"),
-                    React.createElement("input", {
-                      className: "form-input",
-                      value: form.reps,
-                      onChange: (e) => setForm((prev) => ({ ...prev, reps: e.target.value })),
-                    })
-                  ),
-                  React.createElement("div", null,
-                    React.createElement("label", { className: "block text-sm font-semibold mb-1" }, "Rest (sec)"),
-                    React.createElement("input", {
-                      type: "number",
-                      className: "form-input",
-                      value: form.rest,
-                      onChange: (e) => setForm((prev) => ({ ...prev, rest: parseInt(e.target.value) || 0 })),
-                    })
-                  )
-                ),
-
-                React.createElement("div", { className: "space-y-2" },
-                  React.createElement("label", { className: "block text-sm font-semibold mb-1" }, "Exercise Demo Video"),
-                  React.createElement("div", { className: "flex flex-wrap gap-2" },
-                    React.createElement("label", { className: "btn-secondary cursor-pointer inline-block" },
-                      "Upload Video",
-                      React.createElement("input", {
-                        type: "file",
-                        accept: "video/*",
-                        style: { display: "none" },
-                        onChange: (e) => handleVideoFile(e.target.files?.[0]),
-                      })
-                    ),
-                    React.createElement("label", { className: "btn-secondary cursor-pointer inline-block" },
-                      "Record Video",
-                      React.createElement("input", {
-                        type: "file",
-                        accept: "video/*",
-                        capture: "environment",
-                        style: { display: "none" },
-                        onChange: (e) => handleVideoFile(e.target.files?.[0]),
-                      })
-                    ),
-                    form.videoData
-                      ? React.createElement(
-                          "button",
-                          {
-                            type: "button",
-                            className: "btn-secondary",
-                            onClick: () =>
-                              setForm((prev) => ({
-                                ...prev,
-                                videoName: "",
-                                videoType: "",
-                                videoData: "",
-                              })),
-                          },
-                          "Remove Video"
-                        )
-                      : null
-                  ),
-                  form.videoName
-                    ? React.createElement(
-                        "p",
-                        { className: "text-sm text-gray-600" },
-                        "Selected: ",
-                        form.videoName
-                      )
-                    : null,
-                  form.videoData
-                    ? React.createElement(
-                        "div",
-                        { className: "mt-2 max-w-md" },
-                        React.createElement(VideoPreview, {
-                          src: form.videoData,
-                          maxHeight: "240px",
-                        })
-                      )
-                    : React.createElement(
-                        "p",
-                        { className: "text-sm text-gray-500" },
-                        "No video attached."
-                      )
-                ),
-
-                React.createElement(
-                  "div",
-                  { className: "flex gap-2" },
-                  React.createElement(
-                    "button",
-                    { type: "submit", className: "btn-primary" },
-                    editingExercise ? "Save Exercise" : "Create Exercise"
-                  ),
-                  React.createElement(
-                    "button",
-                    { type: "button", onClick: reset, className: "btn-secondary" },
-                    "Cancel"
-                  )
-                )
-              )
+          editingExercise
+            ? React.createElement(ExerciseModal, {
+                editExercise: editingExercise.id ? editingExercise : null,
+                categories,
+                onClose: () => setEditingExercise(null),
+                onSave: (exercise) => {
+                  if (editingExercise.id) onUpdateExercise(exercise);
+                  else onAddExercise(exercise);
+                },
+              })
             : null,
 
           React.createElement(
@@ -1497,9 +1628,7 @@
                                 "button",
                                 {
                                   className: "text-red-600 hover:text-red-800 font-bold",
-                                  onClick: () => {
-                                    if (confirm("Delete this exercise?")) onDeleteExercise(exercise.id);
-                                  },
+                                  onClick: () => onDeleteExercise(exercise),
                                 },
                                 "✕"
                               )
@@ -1540,9 +1669,11 @@
         const [data, setData] = useState(DEFAULT_DATA);
         const [loading, setLoading] = useState(true);
         const [view, setView] = useState("pitchers");
+        const [navOpen, setNavOpen] = useState(false);
         const [selectedPitcher, setSelectedPitcher] = useState(null);
         const [showPitcherModal, setShowPitcherModal] = useState(false);
         const [editingPitcher, setEditingPitcher] = useState(null);
+        const [pendingDelete, setPendingDelete] = useState(null);
 
         useEffect(() => {
           (async () => {
@@ -1577,16 +1708,22 @@
           setEditingPitcher(null);
         }
 
-        function deletePitcher(id) {
-          if (!confirm("Are you sure you want to delete this pitcher?")) return;
-          updateData((prev) => ({
-            ...prev,
-            pitchers: prev.pitchers.filter((p) => p.id !== id),
-          }));
-          if (selectedPitcher?.id === id) {
-            setSelectedPitcher(null);
-            setView("pitchers");
-          }
+        function requestDeletePitcher(pitcher) {
+          setPendingDelete({
+            title: "Delete Pitcher?",
+            message: `Are you sure you want to delete pitcher '${pitcher.name}'?`,
+            confirmLabel: "Delete Pitcher",
+            onConfirm: () => {
+              updateData((prev) => ({
+                ...prev,
+                pitchers: prev.pitchers.filter((p) => p.id !== pitcher.id),
+              }));
+              if (selectedPitcher?.id === pitcher.id) {
+                setSelectedPitcher(null);
+                setView("pitchers");
+              }
+            },
+          });
         }
 
         function selectPitcher(pitcher) {
@@ -1611,21 +1748,28 @@
           setView("pitcher-detail");
         }
 
-        function deleteWorkout(workoutId) {
+        function requestDeleteWorkout(workout) {
           if (!selectedPitcher) return;
-          let updatedPitcher = null;
-          updateData((prev) => {
-            const nextPitchers = prev.pitchers.map((pitcher) => {
-              if (pitcher.id !== selectedPitcher.id) return pitcher;
-              updatedPitcher = {
-                ...pitcher,
-                workouts: pitcher.workouts.filter((w) => w.id !== workoutId),
-              };
-              return updatedPitcher;
-            });
-            return { ...prev, pitchers: nextPitchers };
+          setPendingDelete({
+            title: "Remove Workout?",
+            message: `Are you sure you want to remove workout '${workout.name}'?`,
+            confirmLabel: "Remove Workout",
+            onConfirm: () => {
+              let updatedPitcher = null;
+              updateData((prev) => {
+                const nextPitchers = prev.pitchers.map((pitcher) => {
+                  if (pitcher.id !== selectedPitcher.id) return pitcher;
+                  updatedPitcher = {
+                    ...pitcher,
+                    workouts: pitcher.workouts.filter((w) => w.id !== workout.id),
+                  };
+                  return updatedPitcher;
+                });
+                return { ...prev, pitchers: nextPitchers };
+              });
+              if (updatedPitcher) setSelectedPitcher(updatedPitcher);
+            },
           });
-          if (updatedPitcher) setSelectedPitcher(updatedPitcher);
         }
 
         function toggleWorkoutComplete(workoutId) {
@@ -1661,11 +1805,18 @@
           }));
         }
 
-        function deleteCategory(categoryId) {
-          updateData((prev) => ({
-            ...prev,
-            exerciseCategories: prev.exerciseCategories.filter((c) => c.id !== categoryId),
-          }));
+        function requestDeleteCategory(category) {
+          setPendingDelete({
+            title: "Delete Exercise Category?",
+            message: `Are you sure you want to delete exercise category '${category.name}'?`,
+            confirmLabel: "Delete Category",
+            onConfirm: () => {
+              updateData((prev) => ({
+                ...prev,
+                exerciseCategories: prev.exerciseCategories.filter((c) => c.id !== category.id),
+              }));
+            },
+          });
         }
 
         function addExercise(exercise) {
@@ -1682,11 +1833,28 @@
           }));
         }
 
-        function deleteExercise(exerciseId) {
-          updateData((prev) => ({
-            ...prev,
-            exercises: prev.exercises.filter((e) => e.id !== exerciseId),
-          }));
+        function requestDeleteExercise(exercise) {
+          setPendingDelete({
+            title: "Delete Exercise?",
+            message: `Are you sure you want to delete exercise '${exercise.name}'?`,
+            confirmLabel: "Delete Exercise",
+            onConfirm: () => {
+              updateData((prev) => ({
+                ...prev,
+                exercises: prev.exercises.filter((e) => e.id !== exercise.id),
+              }));
+            },
+          });
+        }
+
+        function closeDeleteModal() {
+          setPendingDelete(null);
+        }
+
+        function confirmPendingDelete() {
+          if (!pendingDelete?.onConfirm) return;
+          pendingDelete.onConfirm();
+          setPendingDelete(null);
         }
 
         function exportPitchers() {
@@ -1846,9 +2014,37 @@
         const currentPitcher =
           selectedPitcher ? data.pitchers.find((p) => p.id === selectedPitcher.id) || selectedPitcher : null;
 
+        function openView(nextView) {
+          setView(nextView);
+          setNavOpen(false);
+        }
+
+        function renderNavButton(targetView, label) {
+          const active = view === targetView;
+          return React.createElement(
+            "button",
+            {
+              onClick: () => openView(targetView),
+              className: `w-full md:w-auto px-4 py-2 rounded-lg font-semibold text-left md:text-center transition-colors ${
+                active ? "bg-baseball-red text-white" : "bg-gray-700 hover:bg-gray-600 text-white"
+              }`,
+            },
+            label
+          );
+        }
+
         return React.createElement(
           "div",
           { className: "min-h-screen bg-gradient-to-br from-gray-50 to-gray-100" },
+          pendingDelete
+            ? React.createElement(DeleteConfirmModal, {
+                title: pendingDelete.title,
+                message: pendingDelete.message,
+                confirmLabel: pendingDelete.confirmLabel,
+                onConfirm: confirmPendingDelete,
+                onClose: closeDeleteModal,
+              })
+            : null,
           React.createElement(
             "header",
             { className: "bg-baseball-navy text-white shadow-lg sticky top-0 z-40" },
@@ -1865,28 +2061,24 @@
                   React.createElement("h1", { className: "text-3xl font-bold" }, "Pitching Program")
                 ),
                 React.createElement(
+                  "button",
+                  {
+                    type: "button",
+                    className: "md:hidden px-3 py-2 rounded-lg bg-gray-700 hover:bg-gray-600 font-semibold",
+                    onClick: () => setNavOpen((prev) => !prev),
+                    "aria-expanded": navOpen,
+                    "aria-label": "Toggle navigation menu",
+                  },
+                  navOpen ? "Close" : "Menu"
+                ),
+                React.createElement(
                   "nav",
-                  { className: "flex gap-2 flex-wrap" },
-                  React.createElement(
-                    "button",
-                    {
-                      onClick: () => setView("pitchers"),
-                      className: `px-4 py-2 rounded-lg font-semibold transition-colors ${
-                        view === "pitchers" ? "bg-baseball-red text-white" : "bg-gray-700 hover:bg-gray-600"
-                      }`,
-                    },
-                    "Pitchers"
-                  ),
-                  React.createElement(
-                    "button",
-                    {
-                      onClick: () => setView("exercise-library"),
-                      className: `px-4 py-2 rounded-lg font-semibold transition-colors ${
-                        view === "exercise-library" ? "bg-baseball-red text-white" : "bg-gray-700 hover:bg-gray-600"
-                      }`,
-                    },
-                    "Exercises"
-                  )
+                  {
+                    className: `${navOpen ? "flex" : "hidden"} w-full md:w-auto md:flex flex-col md:flex-row gap-2 flex-wrap`,
+                  },
+                  renderNavButton("pitchers", "Pitchers"),
+                  renderNavButton("exercise-library", "Exercises"),
+                  renderNavButton("import-export", "Import / Export")
                 )
               )
             )
@@ -1901,49 +2093,8 @@
                   React.createElement("p", { className: "text-xl text-gray-600" }, "Loading your program...")
                 )
               : React.createElement(
-                  React.Fragment,
-                  null,
-                  React.createElement(
-                    "div",
-                    { className: "card mb-6" },
-                    React.createElement("h2", { className: "text-xl font-bold mb-4" }, "Manual Backup / Transfer"),
-                    React.createElement(
-                      "div",
-                      { className: "grid grid-cols-1 md:grid-cols-2 gap-4" },
-                      React.createElement(
-                        "div",
-                        null,
-                        React.createElement("h3", { className: "font-semibold mb-2" }, "Export"),
-                        React.createElement(
-                          "div",
-                          { className: "flex flex-wrap gap-2" },
-                          React.createElement("button", { className: "btn-secondary", onClick: exportPitchers }, "Export Pitchers"),
-                          React.createElement("button", { className: "btn-secondary", onClick: exportCategories }, "Export Categories"),
-                          React.createElement("button", { className: "btn-secondary", onClick: exportExercises }, "Export Exercises"),
-                          React.createElement("button", { className: "btn-primary", onClick: exportAll }, "Export All")
-                        )
-                      ),
-                      React.createElement(
-                        "div",
-                        null,
-                        React.createElement("h3", { className: "font-semibold mb-2" }, "Import"),
-                        React.createElement(
-                          "div",
-                          { className: "flex flex-wrap gap-2" },
-                          React.createElement("button", { className: "btn-secondary", onClick: importPitchers }, "Import Pitchers"),
-                          React.createElement("button", { className: "btn-secondary", onClick: importCategories }, "Import Categories"),
-                          React.createElement("button", { className: "btn-secondary", onClick: importExercises }, "Import Exercises"),
-                          React.createElement("button", { className: "btn-primary", onClick: importAll }, "Import All")
-                        )
-                      )
-                    ),
-                    React.createElement(
-                      "p",
-                      { className: "text-sm text-gray-600 mt-4" },
-                      "The app still auto-saves in this browser. Use exports to move data to another browser or device."
-                    )
-                  ),
-
+                  "div",
+                  { key: `${view}-${currentPitcher?.id || "none"}`, className: "page-transition" },
                   view === "pitchers" &&
                     React.createElement(
                       "div",
@@ -2003,7 +2154,7 @@
                                 key: pitcher.id,
                                 pitcher,
                                 onSelect: selectPitcher,
-                                onDelete: deletePitcher,
+                                onDelete: requestDeletePitcher,
                                 onEdit: (p) => {
                                   setEditingPitcher(p);
                                   setShowPitcherModal(true);
@@ -2013,13 +2164,64 @@
                           )
                     ),
 
+                  view === "import-export" &&
+                    React.createElement(
+                      "div",
+                      { className: "space-y-6" },
+                      React.createElement(
+                        "div",
+                        { className: "card" },
+                        React.createElement("h2", { className: "text-2xl font-bold mb-2" }, "Import / Export"),
+                        React.createElement(
+                          "p",
+                          { className: "text-sm text-gray-600 mb-6" },
+                          "Move data between browsers or devices, or create a full local backup of your pitching program."
+                        ),
+                        React.createElement(
+                          "div",
+                          { className: "grid grid-cols-1 md:grid-cols-2 gap-6" },
+                          React.createElement(
+                            "div",
+                            { className: "bg-gray-50 rounded-xl border border-gray-200 p-4" },
+                            React.createElement("h3", { className: "font-semibold text-lg mb-3" }, "Export"),
+                            React.createElement(
+                              "div",
+                              { className: "flex flex-wrap gap-2" },
+                              React.createElement("button", { className: "btn-secondary", onClick: exportPitchers }, "Export Pitchers"),
+                              React.createElement("button", { className: "btn-secondary", onClick: exportCategories }, "Export Categories"),
+                              React.createElement("button", { className: "btn-secondary", onClick: exportExercises }, "Export Exercises"),
+                              React.createElement("button", { className: "btn-primary", onClick: exportAll }, "Export All")
+                            )
+                          ),
+                          React.createElement(
+                            "div",
+                            { className: "bg-gray-50 rounded-xl border border-gray-200 p-4" },
+                            React.createElement("h3", { className: "font-semibold text-lg mb-3" }, "Import"),
+                            React.createElement(
+                              "div",
+                              { className: "flex flex-wrap gap-2" },
+                              React.createElement("button", { className: "btn-secondary", onClick: importPitchers }, "Import Pitchers"),
+                              React.createElement("button", { className: "btn-secondary", onClick: importCategories }, "Import Categories"),
+                              React.createElement("button", { className: "btn-secondary", onClick: importExercises }, "Import Exercises"),
+                              React.createElement("button", { className: "btn-primary", onClick: importAll }, "Import All")
+                            )
+                          )
+                        ),
+                        React.createElement(
+                          "p",
+                          { className: "text-sm text-gray-600 mt-6" },
+                          "The app still auto-saves in this browser. Use exports to move data to another browser or device."
+                        )
+                      )
+                    ),
+
                   view === "pitcher-detail" &&
                     currentPitcher &&
                     React.createElement(PitcherDetail, {
                       pitcher: currentPitcher,
                       categories: data.exerciseCategories,
                       onCreateWorkout: () => setView("workout-builder"),
-                      onDeleteWorkout: deleteWorkout,
+                      onDeleteWorkout: requestDeleteWorkout,
                       onCompleteWorkout: toggleWorkoutComplete,
                       onBack: () => {
                         setView("pitchers");
@@ -2050,14 +2252,14 @@
                         exercises: data.exercises,
                         onAddCategory: addCategory,
                         onUpdateCategory: updateCategory,
-                        onDeleteCategory: deleteCategory,
+                        onDeleteCategory: requestDeleteCategory,
                       }),
                       React.createElement(ExerciseManager, {
                         exercises: data.exercises,
                         categories: data.exerciseCategories,
                         onAddExercise: addExercise,
                         onUpdateExercise: updateExercise,
-                        onDeleteExercise: deleteExercise,
+                        onDeleteExercise: requestDeleteExercise,
                       })
                     )
                 )
