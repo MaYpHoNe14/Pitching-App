@@ -279,33 +279,19 @@
               const result = req.result;
               db.close();
               if (!result) {
-                resolve(DEFAULT_DATA);
+                resolve(normalizeProgramData(DEFAULT_DATA));
                 return;
               }
-              resolve({
-                pitchers: Array.isArray(result.pitchers) ? result.pitchers : [],
-                exerciseCategories: Array.isArray(result.exerciseCategories)
-                  ? result.exerciseCategories
-                  : DEFAULT_CATEGORIES,
-                exercises: Array.isArray(result.exercises)
-                  ? result.exercises.map((exercise) => ({
-                      videoName: "",
-                      videoType: "",
-                      videoData: "",
-                      ...exercise,
-                    }))
-                  : DEFAULT_EXERCISES,
-                lastUpdated: result.lastUpdated || new Date().toISOString(),
-              });
+              resolve(normalizeProgramData(result));
             };
             req.onerror = () => {
               db.close();
-              resolve(DEFAULT_DATA);
+              resolve(normalizeProgramData(DEFAULT_DATA));
             };
           });
         } catch (err) {
           console.error("Failed to load IndexedDB data:", err);
-          return DEFAULT_DATA;
+          return normalizeProgramData(DEFAULT_DATA);
         }
       }
 
@@ -373,6 +359,99 @@
           }
         };
         input.click();
+      }
+
+      function todayIso() {
+        return new Date().toISOString().split("T")[0];
+      }
+
+      function addDaysToIso(dateString, offset) {
+        const date = new Date(`${dateString}T12:00:00`);
+        date.setDate(date.getDate() + offset);
+        return date.toISOString().split("T")[0];
+      }
+
+      function estimateWorkoutDurationFromExercises(exercises) {
+        return Math.round(
+          (exercises.reduce((sum, ex) => {
+            const repsNum = parseInt(ex.reps) || 5;
+            return sum + repsNum + (Number(ex.rest) || 0);
+          }, 0) || 0) / 60
+        );
+      }
+
+      function syncWorkoutDayAssignments(dayAssignments, startDate, lengthDays, exercises) {
+        const next = {};
+        const validIds = new Set(exercises.map((exercise) => exercise.workoutItemId || exercise.id));
+
+        for (let index = 0; index < lengthDays; index++) {
+          const day = addDaysToIso(startDate, index);
+          const assigned = Array.isArray(dayAssignments?.[day]) ? dayAssignments[day] : [];
+          next[day] = assigned.filter((assignmentId) => validIds.has(assignmentId));
+        }
+
+        return next;
+      }
+
+      function normalizeWorkout(workout) {
+        const exercises = Array.isArray(workout?.exercises)
+          ? workout.exercises.map((exercise) => ({
+              ...exercise,
+              workoutItemId: exercise.workoutItemId || uuid(),
+            }))
+          : [];
+        const date = workout?.date || todayIso();
+        const lengthDays = Math.max(1, Number(workout?.lengthDays) || 1);
+        let dayAssignments = syncWorkoutDayAssignments(workout?.dayAssignments || {}, date, lengthDays, exercises);
+
+        const hasExistingAssignments = Object.values(dayAssignments).some(
+          (dayList) => Array.isArray(dayList) && dayList.length > 0
+        );
+
+        if (!hasExistingAssignments && exercises.length > 0) {
+          dayAssignments = {
+            ...dayAssignments,
+            [date]: exercises.map((exercise) => exercise.workoutItemId || exercise.id),
+          };
+        }
+
+        return {
+          ...workout,
+          id: workout?.id || uuid(),
+          name: workout?.name || "Untitled Workout",
+          date,
+          lengthDays,
+          duration: Number(workout?.duration) || estimateWorkoutDurationFromExercises(exercises),
+          exercises,
+          notes: workout?.notes || "",
+          completed: !!workout?.completed,
+          dayAssignments,
+        };
+      }
+
+      function normalizePitcher(pitcher) {
+        return {
+          ...pitcher,
+          workouts: Array.isArray(pitcher?.workouts) ? pitcher.workouts.map(normalizeWorkout) : [],
+        };
+      }
+
+      function normalizeProgramData(result) {
+        return {
+          pitchers: Array.isArray(result?.pitchers) ? result.pitchers.map(normalizePitcher) : [],
+          exerciseCategories: Array.isArray(result?.exerciseCategories)
+            ? result.exerciseCategories
+            : DEFAULT_CATEGORIES,
+          exercises: Array.isArray(result?.exercises)
+            ? result.exercises.map((exercise) => ({
+                videoName: "",
+                videoType: "",
+                videoData: "",
+                ...exercise,
+              }))
+            : DEFAULT_EXERCISES,
+          lastUpdated: result?.lastUpdated || new Date().toISOString(),
+        };
       }
 
       function StatBox({ label, value }) {
@@ -987,11 +1066,15 @@
         );
       }
 
-      function WorkoutBuilder({ pitcher, exercises, categories, onSave, onCancel }) {
-        const [workoutName, setWorkoutName] = useState("");
-        const [selectedExercises, setSelectedExercises] = useState([]);
-        const [notes, setNotes] = useState("");
+      function WorkoutBuilder({ pitcher, exercises, categories, onSave, onCancel, editWorkout = null }) {
+        const [workoutName, setWorkoutName] = useState(editWorkout?.name || "");
+        const [selectedExercises, setSelectedExercises] = useState(editWorkout?.exercises || []);
+        const [notes, setNotes] = useState(editWorkout?.notes || "");
         const [draggedExercise, setDraggedExercise] = useState(null);
+        const [lengthDays, setLengthDays] = useState(editWorkout?.lengthDays || 1);
+        const [startDate, setStartDate] = useState(editWorkout?.date || todayIso());
+        const [dayAssignments, setDayAssignments] = useState(editWorkout?.dayAssignments || {});
+        const [plannerTab, setPlannerTab] = useState("builder");
 
         const categoryMap = useMemo(() => {
           const map = {};
@@ -1013,6 +1096,14 @@
           return grouped;
         }, [categories, exercises]);
 
+        const workoutDays = useMemo(() => {
+          return Array.from({ length: Math.max(1, Number(lengthDays) || 1) }, (_, index) => addDaysToIso(startDate, index));
+        }, [startDate, lengthDays]);
+
+        useEffect(() => {
+          setDayAssignments((prev) => syncWorkoutDayAssignments(prev, startDate, Math.max(1, Number(lengthDays) || 1), selectedExercises));
+        }, [startDate, lengthDays, selectedExercises]);
+
         function addExercise(exercise) {
           setSelectedExercises((prev) => [...prev, { ...exercise, workoutItemId: uuid() }]);
         }
@@ -1028,13 +1119,19 @@
           setSelectedExercises(copy);
         }
 
+        function toggleExerciseForDay(day, workoutItemId) {
+          setDayAssignments((prev) => {
+            const dayList = Array.isArray(prev[day]) ? prev[day] : [];
+            const exists = dayList.includes(workoutItemId);
+            return {
+              ...prev,
+              [day]: exists ? dayList.filter((id) => id !== workoutItemId) : [...dayList, workoutItemId],
+            };
+          });
+        }
+
         function estimateDuration() {
-          return (
-            selectedExercises.reduce((sum, ex) => {
-              const repsNum = parseInt(ex.reps) || 5;
-              return sum + repsNum + (Number(ex.rest) || 0);
-            }, 0) / 60
-          );
+          return estimateWorkoutDurationFromExercises(selectedExercises);
         }
 
         function saveWorkout() {
@@ -1044,25 +1141,60 @@
           }
 
           const workout = {
-            id: uuid(),
+            id: editWorkout?.id || uuid(),
             name: workoutName.trim(),
-            date: new Date().toISOString().split("T")[0],
-            duration: Math.round(estimateDuration()),
-            exercises: selectedExercises.map(({ workoutItemId, ...rest }) => rest),
+            date: startDate,
+            lengthDays: Math.max(1, Number(lengthDays) || 1),
+            duration: estimateDuration(),
+            exercises: selectedExercises.map((exercise) => ({
+              ...exercise,
+              workoutItemId: exercise.workoutItemId || uuid(),
+            })),
             notes,
-            completed: false,
+              completed: !!editWorkout?.completed,
+            dayAssignments: syncWorkoutDayAssignments(dayAssignments, startDate, Math.max(1, Number(lengthDays) || 1), selectedExercises),
           };
 
           onSave(workout);
         }
 
+        const assignmentCount = Object.values(dayAssignments).reduce(
+          (sum, dayList) => sum + (Array.isArray(dayList) ? dayList.length : 0),
+          0
+        );
+
+        const unscheduledExercises = selectedExercises.filter((exercise) => {
+          const exerciseId = exercise.workoutItemId || exercise.id;
+          return !workoutDays.some((day) => (dayAssignments[day] || []).includes(exerciseId));
+        });
+
         return React.createElement(
           "div",
           { className: "card max-w-6xl mx-auto" },
-          React.createElement("h2", { className: "text-2xl font-bold mb-4" }, "Build Workout for ", pitcher.name),
+          React.createElement("h2", { className: "text-2xl font-bold mb-4" }, editWorkout ? "Edit Workout for " : "Build Workout for ", pitcher.name),
           React.createElement(
             "div",
-            { className: "grid grid-cols-1 md:grid-cols-3 gap-4 mb-4" },
+            { className: "flex flex-wrap gap-2 mb-4" },
+            React.createElement(
+              "button",
+              {
+                className: plannerTab === "builder" ? "btn-primary" : "btn-secondary",
+                onClick: () => setPlannerTab("builder"),
+              },
+              "Workout Setup"
+            ),
+            React.createElement(
+              "button",
+              {
+                className: plannerTab === "day-to-day" ? "btn-primary" : "btn-secondary",
+                onClick: () => setPlannerTab("day-to-day"),
+              },
+              "Day-To-Day"
+            )
+          ),
+          React.createElement(
+            "div",
+            { className: "grid grid-cols-1 md:grid-cols-5 gap-4 mb-4" },
             React.createElement("div", null,
               React.createElement("label", { className: "block text-sm font-semibold mb-2" }, "Workout Name"),
               React.createElement("input", {
@@ -1073,155 +1205,255 @@
               })
             ),
             React.createElement("div", null,
-              React.createElement("label", { className: "block text-sm font-semibold mb-2" }, "Duration (estimated)"),
-              React.createElement("div", { className: "bg-gray-100 rounded-lg p-2 text-center font-bold" }, estimateDuration().toFixed(1), " min")
+              React.createElement("label", { className: "block text-sm font-semibold mb-2" }, "Start Date"),
+              React.createElement("input", {
+                type: "date",
+                className: "form-input",
+                value: startDate,
+                onChange: (e) => setStartDate(e.target.value || todayIso()),
+              })
             ),
             React.createElement("div", null,
-              React.createElement("label", { className: "block text-sm font-semibold mb-2" }, "Exercises Added"),
+              React.createElement("label", { className: "block text-sm font-semibold mb-2" }, "Length (days)"),
+              React.createElement("input", {
+                type: "number",
+                min: 1,
+                className: "form-input",
+                value: lengthDays,
+                onChange: (e) => setLengthDays(Math.max(1, parseInt(e.target.value) || 1)),
+              })
+            ),
+            React.createElement("div", null,
+              React.createElement("label", { className: "block text-sm font-semibold mb-2" }, "Duration (estimated)"),
+              React.createElement("div", { className: "bg-gray-100 rounded-lg p-2 text-center font-bold" }, estimateDuration(), " min")
+            ),
+            React.createElement("div", null,
+              React.createElement("label", { className: "block text-sm font-semibold mb-2" }, plannerTab === "day-to-day" ? "Assigned Slots" : "Exercises Added"),
               React.createElement("div", { className: "bg-gray-100 rounded-lg p-2 text-center font-bold" }, selectedExercises.length)
             )
           ),
-          React.createElement(
-            "div",
-            { className: "grid grid-cols-1 md:grid-cols-2 gap-4 mb-4" },
-            React.createElement(
-              "div",
-              { className: "border-2 border-dashed border-gray-300 rounded-lg p-4 bg-gray-50" },
-              React.createElement("h3", { className: "font-semibold mb-3" }, "Available Exercises"),
-              React.createElement(
+          plannerTab === "builder"
+            ? React.createElement(
                 "div",
-                { className: "space-y-4 max-h-96 overflow-y-auto" },
-                categories.map((category) =>
+                { className: "grid grid-cols-1 md:grid-cols-2 gap-4 mb-4" },
+                React.createElement(
+                  "div",
+                  { className: "border-2 border-dashed border-gray-300 rounded-lg p-4 bg-gray-50" },
+                  React.createElement("h3", { className: "font-semibold mb-3" }, "Available Exercises"),
                   React.createElement(
                     "div",
-                    { key: category.id },
-                    React.createElement(
-                      "h4",
-                      { className: "font-semibold text-sm mb-2 text-gray-700" },
-                      category.name
-                    ),
-                    (groupedExercises[category.id] || []).length === 0
-                      ? React.createElement("p", { className: "text-xs text-gray-400 mb-2" }, "No exercises in this category.")
-                      : React.createElement(
-                          "div",
-                          { className: "space-y-2" },
-                          groupedExercises[category.id].map((exercise) =>
-                            React.createElement(
-                              "div",
-                              {
-                                key: exercise.id,
-                                draggable: true,
-                                onDragStart: () => setDraggedExercise(exercise),
-                                onDragEnd: () => setDraggedExercise(null),
-                                onClick: () => addExercise(exercise),
-                                className: "p-2 bg-white rounded border border-gray-200 cursor-move hover:border-red-400 transition-colors",
-                              },
-                              React.createElement("p", { className: "font-medium text-sm" }, exercise.name),
-                              React.createElement(
-                                "p",
-                                { className: "text-xs text-gray-600" },
-                                exercise.sets,
-                                " sets × ",
-                                exercise.reps,
-                                exercise.rest > 0 ? ` • Rest: ${exercise.rest}s` : ""
-                              ),
-                              exercise.videoData
-                                ? React.createElement(
-                                    "div",
-                                    { className: "mt-2" },
-                                    React.createElement(VideoPreview, {
-                                      src: exercise.videoData,
-                                      maxHeight: "160px",
-                                    })
-                                  )
-                                : null
-                            )
-                          )
-                        )
-                  )
-                )
-              )
-            ),
-            React.createElement(
-              "div",
-              { className: "border-2 border-solid border-gray-300 rounded-lg p-4 bg-blue-50 min-h-96" },
-              React.createElement("h3", { className: "font-semibold mb-3" }, "Selected Exercises (Drag to reorder)"),
-              selectedExercises.length === 0
-                ? React.createElement("p", { className: "text-gray-500 text-center py-8" }, "Drag or click exercises to add them")
-                : React.createElement(
-                    "div",
-                    {
-                      className: "space-y-2",
-                      onDragOver: (e) => e.preventDefault(),
-                      onDrop: (e) => e.preventDefault(),
-                    },
-                    selectedExercises.map((exercise, index) =>
+                    { className: "space-y-4 max-h-96 overflow-y-auto" },
+                    categories.map((category) =>
                       React.createElement(
                         "div",
-                        {
-                          key: exercise.workoutItemId || `${exercise.id}-${index}`,
-                          draggable: true,
-                          onDragStart: () => setDraggedExercise(exercise),
-                          onDragOver: (e) => e.preventDefault(),
-                          onDrop: () => {
-                            if (!draggedExercise) return;
-                            const fromIndex = selectedExercises.findIndex(
-                              (x) => (x.workoutItemId || x.id) === (draggedExercise.workoutItemId || draggedExercise.id)
-                            );
-                            if (fromIndex !== -1 && fromIndex !== index) {
-                              reorderExercise(fromIndex, index);
-                            }
-                          },
-                          className: "p-3 bg-white rounded border-2 border-gray-300 cursor-move",
-                        },
+                        { key: category.id },
                         React.createElement(
-                          "div",
-                          { className: "flex justify-between items-start" },
-                          React.createElement(
-                            "div",
-                            { className: "flex-1" },
-                            React.createElement("p", { className: "font-medium" }, `${index + 1}. ${exercise.name}`),
-                            React.createElement(
-                              "p",
-                              { className: "text-xs text-gray-600" },
-                              categoryMap[exercise.categoryId] || "Uncategorized"
-                            ),
-                            React.createElement(
-                              "p",
-                              { className: "text-xs text-gray-600" },
-                              exercise.sets,
-                              " sets × ",
-                              exercise.reps
-                            ),
-                            React.createElement(
-                              "p",
-                              { className: "text-xs text-gray-600" },
-                              "Rest: ",
-                              exercise.rest,
-                              "s"
-                            ),
-                            exercise.videoData
-                              ? React.createElement(
+                          "h4",
+                          { className: "font-semibold text-sm mb-2 text-gray-700" },
+                          category.name
+                        ),
+                        (groupedExercises[category.id] || []).length === 0
+                          ? React.createElement("p", { className: "text-xs text-gray-400 mb-2" }, "No exercises in this category.")
+                          : React.createElement(
+                              "div",
+                              { className: "space-y-2" },
+                              groupedExercises[category.id].map((exercise) =>
+                                React.createElement(
                                   "div",
-                                  { className: "mt-2" },
-                                  React.createElement(VideoPreview, {
-                                    src: exercise.videoData,
-                                    maxHeight: "160px",
-                                  })
+                                  {
+                                    key: exercise.id,
+                                    draggable: true,
+                                    onDragStart: () => setDraggedExercise(exercise),
+                                    onDragEnd: () => setDraggedExercise(null),
+                                    onClick: () => addExercise(exercise),
+                                    className: "p-2 bg-white rounded border border-gray-200 cursor-move hover:border-red-400 transition-colors",
+                                  },
+                                  React.createElement("p", { className: "font-medium text-sm" }, exercise.name),
+                                  React.createElement(
+                                    "p",
+                                    { className: "text-xs text-gray-600" },
+                                    exercise.sets,
+                                    " sets × ",
+                                    exercise.reps,
+                                    exercise.rest > 0 ? ` • Rest: ${exercise.rest}s` : ""
+                                  ),
+                                  exercise.videoData
+                                    ? React.createElement(
+                                        "div",
+                                        { className: "mt-2" },
+                                        React.createElement(VideoPreview, {
+                                          src: exercise.videoData,
+                                          maxHeight: "160px",
+                                        })
+                                      )
+                                    : null
                                 )
-                              : null
-                          ),
-                          React.createElement(
-                            "button",
-                            { onClick: () => removeExercise(index), className: "text-red-600 hover:text-red-800 font-bold" },
-                            "✕"
-                          )
-                        )
+                              )
+                            )
                       )
                     )
                   )
-            )
-          ),
+                ),
+                React.createElement(
+                  "div",
+                  { className: "border-2 border-solid border-gray-300 rounded-lg p-4 bg-blue-50 min-h-96" },
+                  React.createElement("h3", { className: "font-semibold mb-3" }, "Selected Exercises (Drag to reorder)"),
+                  selectedExercises.length === 0
+                    ? React.createElement("p", { className: "text-gray-500 text-center py-8" }, "Drag or click exercises to add them")
+                    : React.createElement(
+                        "div",
+                        {
+                          className: "space-y-2",
+                          onDragOver: (e) => e.preventDefault(),
+                          onDrop: (e) => e.preventDefault(),
+                        },
+                        selectedExercises.map((exercise, index) =>
+                          React.createElement(
+                            "div",
+                            {
+                              key: exercise.workoutItemId || `${exercise.id}-${index}`,
+                              draggable: true,
+                              onDragStart: () => setDraggedExercise(exercise),
+                              onDragOver: (e) => e.preventDefault(),
+                              onDrop: () => {
+                                if (!draggedExercise) return;
+                                const fromIndex = selectedExercises.findIndex(
+                                  (x) => (x.workoutItemId || x.id) === (draggedExercise.workoutItemId || draggedExercise.id)
+                                );
+                                if (fromIndex !== -1 && fromIndex !== index) {
+                                  reorderExercise(fromIndex, index);
+                                }
+                              },
+                              className: "p-3 bg-white rounded border-2 border-gray-300 cursor-move",
+                            },
+                            React.createElement(
+                              "div",
+                              { className: "flex justify-between items-start gap-3" },
+                              React.createElement(
+                                "div",
+                                { className: "flex-1" },
+                                React.createElement("p", { className: "font-medium" }, `${index + 1}. ${exercise.name}`),
+                                React.createElement(
+                                  "p",
+                                  { className: "text-xs text-gray-600" },
+                                  categoryMap[exercise.categoryId] || "Uncategorized"
+                                ),
+                                React.createElement(
+                                  "p",
+                                  { className: "text-xs text-gray-600" },
+                                  exercise.sets,
+                                  " sets × ",
+                                  exercise.reps
+                                ),
+                                React.createElement(
+                                  "p",
+                                  { className: "text-xs text-gray-600" },
+                                  "Rest: ",
+                                  exercise.rest,
+                                  "s"
+                                ),
+                                exercise.videoData
+                                  ? React.createElement(
+                                      "div",
+                                      { className: "mt-2" },
+                                      React.createElement(VideoPreview, {
+                                        src: exercise.videoData,
+                                        maxHeight: "160px",
+                                      })
+                                    )
+                                  : null
+                              ),
+                              React.createElement(
+                                "button",
+                                { onClick: () => removeExercise(index), className: "text-red-600 hover:text-red-800 font-bold" },
+                                "✕"
+                              )
+                            )
+                          )
+                        )
+                      )
+                )
+              )
+            : React.createElement(
+                "div",
+                { className: "space-y-4 mb-4" },
+                React.createElement(
+                  "div",
+                  { className: "card-elevated border border-gray-200 p-4" },
+                  React.createElement(
+                    "div",
+                    { className: "flex flex-wrap items-center justify-between gap-3 mb-3" },
+                    React.createElement("h3", { className: "text-lg font-semibold text-baseball-navy" }, "Day-To-Day Planner"),
+                    React.createElement("span", { className: "text-sm text-gray-600" }, `${workoutDays.length} day plan • ${assignmentCount} assignments`)
+                  ),
+                  unscheduledExercises.length > 0
+                    ? React.createElement(
+                        "div",
+                        { className: "rounded-lg border border-amber-200 bg-amber-50 p-3 mb-4" },
+                        React.createElement("p", { className: "text-sm font-semibold text-amber-900 mb-1" }, "Unscheduled Exercises"),
+                        React.createElement(
+                          "p",
+                          { className: "text-sm text-amber-800" },
+                          unscheduledExercises.map((exercise) => exercise.name).join(", ")
+                        )
+                      )
+                    : React.createElement(
+                        "div",
+                        { className: "rounded-lg border border-green-200 bg-green-50 p-3 mb-4 text-sm text-green-800" },
+                        "Every exercise in this workout is assigned to at least one calendar day."
+                      ),
+                  React.createElement(
+                    "div",
+                    { className: "grid grid-cols-1 lg:grid-cols-2 gap-4" },
+                    workoutDays.map((day, dayIndex) =>
+                      React.createElement(
+                        "div",
+                        { key: day, className: "rounded-xl border border-gray-200 bg-white p-4" },
+                        React.createElement(
+                          "div",
+                          { className: "flex items-center justify-between gap-3 mb-3" },
+                          React.createElement(
+                            "div",
+                            null,
+                            React.createElement("h4", { className: "font-semibold" }, `Day ${dayIndex + 1}`),
+                            React.createElement("p", { className: "text-sm text-gray-600" }, new Date(`${day}T12:00:00`).toLocaleDateString())
+                          ),
+                          React.createElement("span", { className: "text-xs font-semibold text-gray-500" }, `${(dayAssignments[day] || []).length} assigned`)
+                        ),
+                        selectedExercises.length === 0
+                          ? React.createElement("p", { className: "text-sm text-gray-500" }, "Add exercises to start planning this day.")
+                          : React.createElement(
+                              "div",
+                              { className: "space-y-2" },
+                              selectedExercises.map((exercise, index) => {
+                                const exerciseId = exercise.workoutItemId || exercise.id;
+                                const checked = (dayAssignments[day] || []).includes(exerciseId);
+                                return React.createElement(
+                                  "label",
+                                  {
+                                    key: exerciseId,
+                                    className: `flex items-start gap-3 rounded-lg border p-3 cursor-pointer transition ${checked ? "border-red-300 bg-red-50" : "border-gray-200 bg-gray-50 hover:border-gray-300"}`,
+                                  },
+                                  React.createElement("input", {
+                                    type: "checkbox",
+                                    className: "mt-1",
+                                    checked,
+                                    onChange: () => toggleExerciseForDay(day, exerciseId),
+                                  }),
+                                  React.createElement(
+                                    "div",
+                                    { className: "flex-1" },
+                                    React.createElement("p", { className: "font-medium text-sm" }, `${index + 1}. ${exercise.name}`),
+                                    React.createElement("p", { className: "text-xs text-gray-600" }, `${categoryMap[exercise.categoryId] || "Uncategorized"} • ${exercise.sets}x${exercise.reps}${exercise.rest > 0 ? ` • Rest ${exercise.rest}s` : ""}`)
+                                  )
+                                );
+                              })
+                            )
+                      )
+                    )
+                  )
+                )
+              ),
           React.createElement("div", { className: "mb-4" },
             React.createElement("label", { className: "block text-sm font-semibold mb-2" }, "Notes"),
             React.createElement("textarea", {
@@ -1234,13 +1466,13 @@
           React.createElement(
             "div",
             { className: "flex gap-2" },
-            React.createElement("button", { onClick: saveWorkout, className: "btn-primary flex-1" }, "Save Workout"),
+            React.createElement("button", { onClick: saveWorkout, className: "btn-primary flex-1" }, editWorkout ? "Save Workout Changes" : "Save Workout"),
             React.createElement("button", { onClick: onCancel, className: "btn-secondary flex-1" }, "Cancel")
           )
         );
       }
 
-      function PitcherDetail({ pitcher, categories, onCreateWorkout, onDeleteWorkout, onCompleteWorkout, onBack, onEditPitcher }) {
+      function PitcherDetail({ pitcher, categories, onCreateWorkout, onOpenWorkout, onDeleteWorkout, onCompleteWorkout, onBack, onEditPitcher }) {
         const categoryMap = useMemo(() => {
           const map = {};
           categories.forEach((c) => {
@@ -1248,6 +1480,119 @@
           });
           return map;
         }, [categories]);
+        const [profileTab, setProfileTab] = useState("workouts");
+        const [calendarMode, setCalendarMode] = useState("month");
+        const [calendarAnchor, setCalendarAnchor] = useState(todayIso());
+
+        const pendingDayToDay = useMemo(() => {
+          const byDay = {};
+          const pendingWorkouts = (pitcher.workouts || []).filter((workout) => !workout.completed);
+
+          pendingWorkouts.forEach((workout) => {
+            const normalizedWorkout = normalizeWorkout(workout);
+            const exercisesById = {};
+            (normalizedWorkout.exercises || []).forEach((exercise) => {
+              const key = exercise.workoutItemId || exercise.id;
+              if (key) exercisesById[key] = exercise;
+            });
+
+            Object.entries(normalizedWorkout.dayAssignments || {}).forEach(([day, assignmentIds]) => {
+              if (!Array.isArray(assignmentIds) || assignmentIds.length === 0) return;
+              if (!byDay[day]) byDay[day] = [];
+
+              assignmentIds.forEach((assignmentId) => {
+                const exercise = exercisesById[assignmentId];
+                if (!exercise) return;
+                byDay[day].push({
+                  workoutId: normalizedWorkout.id,
+                  workoutName: normalizedWorkout.name,
+                  exerciseName: exercise.name,
+                  categoryId: exercise.categoryId,
+                  sets: exercise.sets,
+                  reps: exercise.reps,
+                  rest: exercise.rest,
+                });
+              });
+            });
+          });
+
+          const days = Object.keys(byDay)
+            .sort((a, b) => a.localeCompare(b))
+            .map((day) => ({ day, items: byDay[day] }));
+
+          const totalAssignments = days.reduce((sum, entry) => sum + entry.items.length, 0);
+
+          return {
+            days,
+            totalAssignments,
+            pendingWorkouts: pendingWorkouts.length,
+            byDay,
+          };
+        }, [pitcher.workouts]);
+
+        const calendarModel = useMemo(() => {
+          const anchor = new Date(`${calendarAnchor}T12:00:00`);
+          if (Number.isNaN(anchor.getTime())) {
+            return { label: "", days: [] };
+          }
+
+          if (calendarMode === "week") {
+            const start = new Date(anchor);
+            const mondayOffset = (start.getDay() + 6) % 7;
+            start.setDate(start.getDate() - mondayOffset);
+
+            const days = Array.from({ length: 7 }, (_, i) => {
+              const date = new Date(start);
+              date.setDate(start.getDate() + i);
+              const iso = date.toISOString().slice(0, 10);
+              return {
+                iso,
+                date,
+                inCurrentMonth: true,
+                assignments: pendingDayToDay.byDay[iso] || [],
+              };
+            });
+
+            const end = new Date(start);
+            end.setDate(start.getDate() + 6);
+            return {
+              label: `${start.toLocaleDateString(undefined, { month: "short", day: "numeric" })} - ${end.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}`,
+              days,
+            };
+          }
+
+          const firstOfMonth = new Date(anchor.getFullYear(), anchor.getMonth(), 1, 12);
+          const start = new Date(firstOfMonth);
+          const mondayOffset = (start.getDay() + 6) % 7;
+          start.setDate(start.getDate() - mondayOffset);
+
+          const days = Array.from({ length: 42 }, (_, i) => {
+            const date = new Date(start);
+            date.setDate(start.getDate() + i);
+            const iso = date.toISOString().slice(0, 10);
+            return {
+              iso,
+              date,
+              inCurrentMonth: date.getMonth() === anchor.getMonth(),
+              assignments: pendingDayToDay.byDay[iso] || [],
+            };
+          });
+
+          return {
+            label: anchor.toLocaleDateString(undefined, { month: "long", year: "numeric" }),
+            days,
+          };
+        }, [calendarAnchor, calendarMode, pendingDayToDay.byDay]);
+
+        function shiftCalendar(direction) {
+          setCalendarAnchor((prev) => {
+            const date = new Date(`${prev}T12:00:00`);
+            if (Number.isNaN(date.getTime())) return todayIso();
+            if (calendarMode === "month") date.setMonth(date.getMonth() + direction);
+            else date.setDate(date.getDate() + 7 * direction);
+            return date.toISOString().slice(0, 10);
+          });
+        }
 
         return React.createElement(
           "div",
@@ -1313,6 +1658,36 @@
             { className: "card" },
             React.createElement(
               "div",
+              { className: "flex flex-wrap items-center justify-between gap-3" },
+              React.createElement("h2", { className: "text-2xl font-bold" }, "Player Schedule"),
+              React.createElement(
+                "div",
+                { className: "flex gap-2" },
+                React.createElement(
+                  "button",
+                  {
+                    onClick: () => setProfileTab("workouts"),
+                    className: profileTab === "workouts" ? "btn-primary btn-small" : "btn-secondary btn-small",
+                  },
+                  "Workouts"
+                ),
+                React.createElement(
+                  "button",
+                  {
+                    onClick: () => setProfileTab("day-to-day"),
+                    className: profileTab === "day-to-day" ? "btn-primary btn-small" : "btn-secondary btn-small",
+                  },
+                  "Day-To-Day"
+                )
+              )
+            )
+          ),
+          profileTab === "workouts"
+            ? React.createElement(
+                "div",
+                { className: "card" },
+            React.createElement(
+              "div",
               { className: "flex justify-between items-center mb-4" },
               React.createElement("h2", { className: "text-2xl font-bold" }, `Workouts (${pitcher.workouts.length})`),
               React.createElement("button", { onClick: onCreateWorkout, className: "btn-primary" }, "+ New Workout")
@@ -1329,7 +1704,11 @@
                   pitcher.workouts.map((workout) =>
                     React.createElement(
                       "div",
-                      { key: workout.id, className: "border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow" },
+                      {
+                        key: workout.id,
+                        className: "border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow cursor-pointer",
+                        onClick: () => onOpenWorkout(workout),
+                      },
                       React.createElement(
                         "div",
                         { className: "flex justify-between items-start mb-2 gap-4" },
@@ -1343,7 +1722,10 @@
                             new Date(workout.date).toLocaleDateString(),
                             " • ",
                             workout.duration,
-                            " min"
+                            " min • ",
+                            workout.lengthDays || 1,
+                            " day",
+                            (workout.lengthDays || 1) === 1 ? "" : "s"
                           )
                         ),
                         React.createElement(
@@ -1352,17 +1734,42 @@
                           React.createElement(
                             "button",
                             {
-                              onClick: () => onCompleteWorkout(workout.id),
+                              onClick: (e) => {
+                                e.stopPropagation();
+                                onCompleteWorkout(workout.id);
+                              },
                               className: `btn-small ${workout.completed ? "bg-green-500 text-white" : "bg-gray-300"}`,
                             },
                             workout.completed ? "✓ Done" : "Mark Done"
                           ),
                           React.createElement(
                             "button",
-                            { onClick: () => onDeleteWorkout(workout), className: "btn-secondary btn-small" },
+                            {
+                              onClick: (e) => {
+                                e.stopPropagation();
+                                onOpenWorkout(workout);
+                              },
+                              className: "btn-secondary btn-small",
+                            },
+                            "Open"
+                          ),
+                          React.createElement(
+                            "button",
+                            {
+                              onClick: (e) => {
+                                e.stopPropagation();
+                                onDeleteWorkout(workout);
+                              },
+                              className: "btn-secondary btn-small",
+                            },
                             "Delete"
                           )
                         )
+                      ),
+                      React.createElement(
+                        "p",
+                        { className: "text-xs text-gray-500 mb-2" },
+                        "Open this workout to edit exercises, update day length, and plan each calendar day."
                       ),
                       React.createElement("p", { className: "text-sm font-semibold mb-2" }, `${workout.exercises.length} exercises`),
                       React.createElement(
@@ -1421,7 +1828,124 @@
                     )
                   )
                 )
-          )
+              )
+            : React.createElement(
+                "div",
+                { className: "card" },
+                React.createElement(
+                  "div",
+                  { className: "flex flex-wrap items-center justify-between gap-3 mb-4" },
+                  React.createElement("h2", { className: "text-2xl font-bold" }, "Day-To-Day Calendar"),
+                  React.createElement(
+                    "span",
+                    { className: "text-sm text-gray-600" },
+                    `${pendingDayToDay.pendingWorkouts} active workout${pendingDayToDay.pendingWorkouts === 1 ? "" : "s"} • ${pendingDayToDay.totalAssignments} assignments`
+                  )
+                ),
+                pendingDayToDay.days.length === 0
+                  ? React.createElement(
+                      "div",
+                      { className: "rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm text-gray-600" },
+                      "No day-to-day assignments yet for incomplete workouts. Open a workout and use Day-To-Day to assign exercises to dates."
+                    )
+                  : React.createElement(
+                      React.Fragment,
+                      null,
+                      React.createElement(
+                        "div",
+                        { className: "flex flex-wrap items-center justify-between gap-2 mb-4" },
+                        React.createElement(
+                          "div",
+                          { className: "flex gap-2" },
+                          React.createElement(
+                            "button",
+                            {
+                              onClick: () => setCalendarMode("month"),
+                              className: calendarMode === "month" ? "btn-primary btn-small" : "btn-secondary btn-small",
+                            },
+                            "Month"
+                          ),
+                          React.createElement(
+                            "button",
+                            {
+                              onClick: () => setCalendarMode("week"),
+                              className: calendarMode === "week" ? "btn-primary btn-small" : "btn-secondary btn-small",
+                            },
+                            "Week"
+                          )
+                        ),
+                        React.createElement(
+                          "div",
+                          { className: "flex items-center gap-2" },
+                          React.createElement("button", { className: "btn-secondary btn-small", onClick: () => shiftCalendar(-1) }, "←"),
+                          React.createElement("p", { className: "text-sm font-semibold min-w-[180px] text-center" }, calendarModel.label),
+                          React.createElement("button", { className: "btn-secondary btn-small", onClick: () => shiftCalendar(1) }, "→"),
+                          React.createElement(
+                            "button",
+                            { className: "btn-secondary btn-small", onClick: () => setCalendarAnchor(todayIso()) },
+                            "Today"
+                          )
+                        )
+                      ),
+                      React.createElement(
+                        "div",
+                        { className: calendarMode === "month" ? "grid grid-cols-7 gap-2" : "grid grid-cols-1 md:grid-cols-7 gap-2" },
+                        ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((label) =>
+                          React.createElement(
+                            "div",
+                            { key: `weekday-${label}`, className: "text-xs font-semibold text-gray-500 px-2" },
+                            label
+                          )
+                        ),
+                        calendarModel.days.map((day) => {
+                          const isToday = day.iso === todayIso();
+                          const assignments = day.assignments || [];
+                          const previewItems = calendarMode === "month" ? assignments.slice(0, 2) : assignments;
+                          const extraCount = calendarMode === "month" ? Math.max(0, assignments.length - previewItems.length) : 0;
+
+                          return React.createElement(
+                            "div",
+                            {
+                              key: `calendar-day-${day.iso}`,
+                              className: `rounded-lg border p-2 ${day.inCurrentMonth ? "bg-white border-gray-200" : "bg-gray-50 border-gray-100 text-gray-400"} ${calendarMode === "month" ? "min-h-[120px]" : "min-h-[180px]"}`,
+                            },
+                            React.createElement(
+                              "div",
+                              { className: "flex items-center justify-between mb-2" },
+                              React.createElement(
+                                "p",
+                                { className: `text-xs font-semibold ${isToday ? "text-baseball-red" : "text-gray-600"}` },
+                                day.date.getDate()
+                              ),
+                              assignments.length > 0
+                                ? React.createElement("span", { className: "text-[10px] px-2 py-1 rounded-full bg-red-100 text-red-700 font-semibold" }, assignments.length)
+                                : null
+                            ),
+                            assignments.length === 0
+                              ? React.createElement("p", { className: "text-[11px] text-gray-400" }, "No assignments")
+                              : React.createElement(
+                                  "div",
+                                  { className: "space-y-1" },
+                                  previewItems.map((item, index) =>
+                                    React.createElement(
+                                      "div",
+                                      {
+                                        key: `assignment-${day.iso}-${item.workoutId}-${index}`,
+                                        className: "rounded border border-red-100 bg-red-50 px-2 py-1",
+                                      },
+                                      React.createElement("p", { className: "text-[11px] font-semibold text-red-900 truncate" }, item.exerciseName),
+                                      React.createElement("p", { className: "text-[10px] text-red-800 truncate" }, item.workoutName)
+                                    )
+                                  ),
+                                  extraCount > 0
+                                    ? React.createElement("p", { className: "text-[10px] text-gray-500" }, `+${extraCount} more`)
+                                    : null
+                                )
+                          );
+                        })
+                      )
+                    )
+              )
         );
       }
 
@@ -1671,6 +2195,7 @@
         const [view, setView] = useState("pitchers");
         const [navOpen, setNavOpen] = useState(false);
         const [selectedPitcher, setSelectedPitcher] = useState(null);
+        const [selectedWorkout, setSelectedWorkout] = useState(null);
         const [showPitcherModal, setShowPitcherModal] = useState(false);
         const [editingPitcher, setEditingPitcher] = useState(null);
         const [pendingDelete, setPendingDelete] = useState(null);
@@ -1720,6 +2245,7 @@
               }));
               if (selectedPitcher?.id === pitcher.id) {
                 setSelectedPitcher(null);
+                setSelectedWorkout(null);
                 setView("pitchers");
               }
             },
@@ -1731,20 +2257,35 @@
           setView("pitcher-detail");
         }
 
+        function openWorkout(workout) {
+          setSelectedWorkout(workout);
+          setView("workout-builder");
+        }
+
         function createWorkout(workout) {
           if (!selectedPitcher) return;
 
           let updatedPitcher = null;
+          const normalizedWorkout = normalizeWorkout(workout);
           updateData((prev) => {
             const nextPitchers = prev.pitchers.map((pitcher) => {
               if (pitcher.id !== selectedPitcher.id) return pitcher;
-              updatedPitcher = { ...pitcher, workouts: [...pitcher.workouts, workout] };
+              const exists = pitcher.workouts.some((existingWorkout) => existingWorkout.id === normalizedWorkout.id);
+              updatedPitcher = {
+                ...pitcher,
+                workouts: exists
+                  ? pitcher.workouts.map((existingWorkout) =>
+                      existingWorkout.id === normalizedWorkout.id ? normalizedWorkout : existingWorkout
+                    )
+                  : [...pitcher.workouts, normalizedWorkout],
+              };
               return updatedPitcher;
             });
             return { ...prev, pitchers: nextPitchers };
           });
 
           if (updatedPitcher) setSelectedPitcher(updatedPitcher);
+          setSelectedWorkout(normalizedWorkout);
           setView("pitcher-detail");
         }
 
@@ -1768,6 +2309,7 @@
                 return { ...prev, pitchers: nextPitchers };
               });
               if (updatedPitcher) setSelectedPitcher(updatedPitcher);
+              if (selectedWorkout?.id === workout.id) setSelectedWorkout(null);
             },
           });
         }
@@ -1884,9 +2426,10 @@
               if (!confirm("Replace current pitchers with imported pitchers?")) return;
               updateData((prev) => ({
                 ...prev,
-                pitchers: parsed.pitchers,
+                pitchers: parsed.pitchers.map(normalizePitcher),
               }));
               setSelectedPitcher(null);
+              setSelectedWorkout(null);
               setView("pitchers");
               alert("Pitchers imported successfully.");
             } catch (err) {
@@ -1990,19 +2533,10 @@
 
               if (!confirm("Replace ALL current data with the imported backup?")) return;
 
-              setData({
-                pitchers: parsed.pitchers,
-                exerciseCategories: parsed.exerciseCategories,
-                exercises: parsed.exercises.map((exercise) => ({
-                  videoName: "",
-                  videoType: "",
-                  videoData: "",
-                  ...exercise,
-                })),
-                lastUpdated: new Date().toISOString(),
-              });
+              setData(normalizeProgramData(parsed));
 
               setSelectedPitcher(null);
+              setSelectedWorkout(null);
               setView("pitchers");
               alert("Full backup imported successfully.");
             } catch (err) {
@@ -2013,6 +2547,10 @@
 
         const currentPitcher =
           selectedPitcher ? data.pitchers.find((p) => p.id === selectedPitcher.id) || selectedPitcher : null;
+        const currentWorkout =
+          currentPitcher && selectedWorkout
+            ? currentPitcher.workouts.find((workout) => workout.id === selectedWorkout.id) || selectedWorkout
+            : null;
 
         function openView(nextView) {
           setView(nextView);
@@ -2094,7 +2632,7 @@
                 )
               : React.createElement(
                   "div",
-                  { key: `${view}-${currentPitcher?.id || "none"}`, className: "page-transition" },
+                  { key: `${view}-${currentPitcher?.id || "none"}-${currentWorkout?.id || "none"}`, className: "page-transition" },
                   view === "pitchers" &&
                     React.createElement(
                       "div",
@@ -2220,12 +2758,17 @@
                     React.createElement(PitcherDetail, {
                       pitcher: currentPitcher,
                       categories: data.exerciseCategories,
-                      onCreateWorkout: () => setView("workout-builder"),
+                      onCreateWorkout: () => {
+                        setSelectedWorkout(null);
+                        setView("workout-builder");
+                      },
+                      onOpenWorkout: openWorkout,
                       onDeleteWorkout: requestDeleteWorkout,
                       onCompleteWorkout: toggleWorkoutComplete,
                       onBack: () => {
                         setView("pitchers");
                         setSelectedPitcher(null);
+                        setSelectedWorkout(null);
                       },
                       onEditPitcher: () => {
                         setEditingPitcher(currentPitcher);
@@ -2239,6 +2782,7 @@
                       pitcher: currentPitcher,
                       exercises: data.exercises,
                       categories: data.exerciseCategories,
+                      editWorkout: currentWorkout,
                       onSave: createWorkout,
                       onCancel: () => setView("pitcher-detail"),
                     }),
