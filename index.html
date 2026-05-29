@@ -6,6 +6,7 @@
     <title>Pitching Program App</title>
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
       body {
@@ -355,6 +356,95 @@
         a.download = filename;
         a.click();
         URL.revokeObjectURL(url);
+      }
+
+      function downloadCsvFile(filename, csvText) {
+        const blob = new Blob([csvText], { type: "text/csv;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = filename;
+        a.click();
+        URL.revokeObjectURL(url);
+      }
+
+      function sanitizeFileName(value) {
+        return String(value || "file")
+          .trim()
+          .replace(/[^a-z0-9]+/gi, "-")
+          .replace(/^-+|-+$/g, "")
+          .toLowerCase() || "file";
+      }
+
+      function sanitizeSheetName(value, fallback = "Sheet") {
+        const sanitized = String(value || fallback)
+          .replace(/[\\/?*\[\]:]/g, " ")
+          .trim()
+          .slice(0, 31);
+        return sanitized || fallback;
+      }
+
+      function escapeCsvValue(value) {
+        const stringValue = String(value ?? "");
+        if (/[,"\n]/.test(stringValue)) {
+          return `"${stringValue.replace(/"/g, '""')}"`;
+        }
+        return stringValue;
+      }
+
+      function buildPitcherWorkoutScheduleWorkbook(pitcher) {
+        const workouts = Array.isArray(pitcher?.workouts) ? pitcher.workouts.map(normalizeWorkout) : [];
+        const workbook = XLSX.utils.book_new();
+        const usedSheetNames = new Set();
+
+        workouts.forEach((workout, workoutIndex) => {
+          const totalDays = Math.max(1, Number(workout.lengthDays) || 1);
+          const exercisesById = {};
+          (workout.exercises || []).forEach((exercise) => {
+            const key = exercise.workoutItemId || exercise.id;
+            exercisesById[key] = exercise;
+          });
+
+          const rows = [["Date", "Exercises"]];
+
+          for (let dayIndex = 0; dayIndex < totalDays; dayIndex++) {
+            const dayIso = addDaysToIso(workout.date, dayIndex);
+            const assignedIds = Array.isArray(workout.dayAssignments?.[dayIso]) ? workout.dayAssignments[dayIso] : [];
+            const assignedExercises = assignedIds.map((assignmentId) => exercisesById[assignmentId]).filter(Boolean);
+            const date = new Date(`${dayIso}T12:00:00`);
+            const dateLabel = Number.isNaN(date.getTime())
+              ? dayIso
+              : date.toLocaleDateString(undefined, { weekday: "long", month: "numeric", day: "numeric", year: "numeric" });
+
+            rows.push([
+              dateLabel,
+              assignedExercises.length > 0
+                ? assignedExercises.map((exercise) => exercise.name).join(", ")
+                : "No exercises assigned",
+            ]);
+          }
+
+          const worksheet = XLSX.utils.aoa_to_sheet(rows);
+          worksheet["!cols"] = [{ wch: 26 }, { wch: 80 }];
+
+          let sheetName = sanitizeSheetName(workout.name || `Workout ${workoutIndex + 1}`, `Workout ${workoutIndex + 1}`);
+          let duplicateIndex = 2;
+          while (usedSheetNames.has(sheetName)) {
+            sheetName = sanitizeSheetName(`${workout.name || `Workout ${workoutIndex + 1}`} ${duplicateIndex}`, `Workout ${workoutIndex + 1}`);
+            duplicateIndex += 1;
+          }
+
+          usedSheetNames.add(sheetName);
+          XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
+        });
+
+        if (workbook.SheetNames.length === 0) {
+          const worksheet = XLSX.utils.aoa_to_sheet([["Date", "Exercises"], ["No workouts", "No exercises assigned"]]);
+          worksheet["!cols"] = [{ wch: 26 }, { wch: 80 }];
+          XLSX.utils.book_append_sheet(workbook, worksheet, "Schedule");
+        }
+
+        return workbook;
       }
 
       function readJsonFile(file) {
@@ -1984,6 +2074,17 @@
           });
         }
 
+        function downloadPitcherScheduleWorkbook() {
+          if (!window.XLSX) {
+            alert("Workbook export is unavailable right now. Refresh and try again.");
+            return;
+          }
+
+          const workbook = buildPitcherWorkoutScheduleWorkbook(pitcher);
+          const filename = `${sanitizeFileName(pitcher.name)}-workout-schedule.xlsx`;
+          XLSX.writeFile(workbook, filename);
+        }
+
         return React.createElement(
           React.Fragment,
           null,
@@ -2007,7 +2108,12 @@
                   pitcher.position.charAt(0).toUpperCase() + pitcher.position.slice(1)
                 )
               ),
-              React.createElement("button", { className: "btn-secondary", onClick: onEditPitcher }, "Edit Pitcher")
+              React.createElement(
+                "div",
+                { className: "flex gap-2" },
+                React.createElement("button", { className: "btn-secondary", onClick: downloadPitcherScheduleWorkbook }, "Download Schedule Workbook"),
+                React.createElement("button", { className: "btn-secondary", onClick: onEditPitcher }, "Edit Pitcher")
+              )
             ),
             React.createElement(
               "div",
@@ -2283,10 +2389,10 @@
                       ),
                       React.createElement(
                         "div",
-                        { className: "grid grid-cols-1 xl:grid-cols-3 gap-4" },
+                        { className: "grid grid-cols-1 md:grid-cols-3 gap-4" },
                         React.createElement(
                           "div",
-                          { className: "xl:col-span-2" },
+                          { className: "md:col-span-2" },
                           React.createElement(
                             "div",
                             { className: calendarMode === "month" ? "grid grid-cols-7 gap-2" : "grid grid-cols-1 md:grid-cols-7 gap-2" },
